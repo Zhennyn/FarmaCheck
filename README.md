@@ -347,21 +347,20 @@ O foco do app é reduzir perdas por vencimento e melhorar a operação de audito
 
 ### 6️⃣ Exportar Dados
 
-1. Clique em "Exportar CSV"
+1. Clique em "Salvar Interno"
 2. Selecione opção de compartilhamento
 3. Escolha destino (email, cloud storage, etc)
-4. Ficheiro gerado: `Validades_[LOJA].csv`
+4. Arquivo gerado: `Validades_[LOJA]_[timestamp].xlsx`
 
-**Formato do CSV:**
+**Colunas exportadas:**
 ```
-Nome;Apresentacao;Codigo_EAN;Validade;Status;Custo_Unitario;Quantidade;Colaborador
-Paracetamol 500mg;20 Comprimidos;7891011121314;2025-12-30;NO PRAZO;5.50;10;Matheus
+Nome;Apresentacao;Embalagem;Codigo_EAN;Validade;Status;Quantidade;Colaborador;Setor;Lote;Status_Conferencia;Tipo_Medida;Conteudo_Embalagem;Observacao
 ```
 
 ### 7️⃣ Importar Dados
 
-1. Clique em "Importar CSV"
-2. Selecione um ficheiro CSV validado
+1. Clique em "Importar Produtos"
+2. Selecione um arquivo CSV ou XLSX
 3. Confirme a adição de produtos
 4. Produtos são inseridos na base de dados
 
@@ -418,8 +417,8 @@ https://world.openfoodfacts.org/api/v0/product/{EAN}.json
 | `formataDataBR()` | Converte AAAA-MM-DD para DD/MM/AAAA |
 | `salvarProduto()` | Insere ou atualiza na base SQLite |
 | `removerProduto()` | Deleta produto do banco |
-| `exportarParaExcel()` | Gera CSV compartilhável |
-| `importarDeExcel()` | Importa CSV selecionado |
+| `exportarParaExcel()` | Gera XLSX compartilhável com múltiplas abas |
+| `importarDeExcel()` | Importa CSV ou XLSX selecionado |
 
 ---
 
@@ -443,17 +442,17 @@ Base de dados local `farmacia.db` com tabela `produtos`. Totalmente offline, nã
 **Backup:**
 ```bash
 # Via Android File Shares
-/data/data/com.expo.appdevalidade/databases/farmacia.db
+/data/data/com.myzel.AppDeValidade/databases/farmacia.db
 
 # Via iOS (mediante permissão)
 Documents/SQLite/farmacia.db
 ```
 
-### Cache (Ficheiros)
+### Cache (Arquivos)
 
-Ficheiros CSV são armazenados temporariamente em:
-- **Android:** `/cache/Validades_[LOJA].csv`
-- **iOS:** `/tmp/Validades_[LOJA].csv`
+Arquivos XLSX são armazenados temporariamente em:
+- **Android:** `/cache/Validades_[LOJA]_[timestamp].xlsx`
+- **iOS:** `/tmp/Validades_[LOJA]_[timestamp].xlsx`
 
 ---
 
@@ -480,11 +479,11 @@ m → Mostrar menu de desenvolvimento
 ### Problema: "Banco de dados corrompido"
 **Solução:** Use o botão "Apagar Base de Dados (SQLite)" em Definições (operação irreversível)
 
-### Problema: "CSV não importa"
+### Problema: "Arquivo não importa"
 **Solução:** Verifique formatação:
-- Separador deve ser **ponto-e-vírgula (;)**
-- Codificação deve ser **UTF-8**
-- Cabeçalho obrigatório: `Nome;Apresentacao;Codigo_EAN;Validade;Status;Custo_Unitario;Quantidade;Colaborador`
+- Para CSV: separador deve ser **ponto-e-vírgula (;)**, codificação **UTF-8**
+- Cabeçalhos reconhecidos (novo layout): `Nome`, `Apresentacao`, `Codigo_EAN`, `Validade`, `Quantidade`, `Colaborador`, `Setor`, `Lote`, `Status_Conferencia`
+- Layout antigo por posição de coluna também é suportado
 
 ### Problema: "EAN não encontra produto"
 **Solução:** 
@@ -590,7 +589,7 @@ Desenvolvido com ❤️ para farmácias e lojas que desejam melhorar gestão de 
     └─────┬───────┘              └──────┬───────┘
           │                             │
     ┌─────↓──────────────┐             │
-    │ Buscar ERP Local   │             │
+    │ Buscar Base Intern │             │
     │ ou API OpenFood    │             │
     └─────┬──────────────┘             │
           │                             │

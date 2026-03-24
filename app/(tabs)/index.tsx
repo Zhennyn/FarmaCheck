@@ -7,8 +7,9 @@ import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
 import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, Upload, User, Warehouse, X } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as XLSX from 'xlsx';
 import baseInternaEmbutida from '../../assets/data/anvisa-base.json';
 
@@ -67,9 +68,24 @@ type HistoricoRegistro = {
   colaborador: string;
   data_evento: number;
   detalhes: string;
+  tipo_produto?: string;
 };
 
 type BancoDados = Awaited<ReturnType<typeof SQLite.openDatabaseAsync>>;
+type ColunaTabela = { name: string };
+type StatusValidadeInfo = {
+  tipo: 'ok' | 'markdown' | 'retirar' | 'vencido';
+  label: string;
+  cor: string;
+  bg: string;
+  border: string;
+};
+type ProdutoComAnalise = Produto & {
+  diasAteValidade: number;
+  statusValidade: StatusValidadeInfo;
+  embalagemCalculada: TipoEmbalagem | null;
+  totalMedidoCalculado: string | null;
+};
 
 const OPCOES_UNIDADE_MEDIDA: { valor: UnidadeMedida; label: string }[] = [
   { valor: 'unidades', label: 'Unid' },
@@ -119,8 +135,10 @@ const SETORES_PADRAO = ['Balcao', 'Gondola', 'Geladeira', 'Controlados', 'Estoqu
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
+const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
 const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
+const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const TIPOS_PLANILHA = [
   'text/csv',
   'text/plain',
@@ -130,6 +148,20 @@ const TIPOS_PLANILHA = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream',
 ];
+
+const ALIASES_NOME_PRODUTO = ['nome', 'produto', 'descricao', 'descricao_produto', 'nome_produto', 'item'];
+const ALIASES_CODIGO_PRODUTO = ['codigo_ean', 'codigo', 'ean', 'gtin', 'codigo_de_barras', 'codigodebarras'];
+const ALIASES_VALIDADE_PRODUTO = ['validade', 'data_validade', 'dt_validade', 'vencimento', 'data_vencimento'];
+const ALIASES_APRESENTACAO = ['apresentacao', 'apresentacao_comercial', 'descricao_apresentacao'];
+const ALIASES_QUANTIDADE = ['quantidade', 'qtd', 'estoque'];
+const ALIASES_COLABORADOR = ['colaborador', 'responsavel', 'usuario'];
+const ALIASES_SETOR = ['setor', 'secao', 'categoria_setor'];
+const ALIASES_LOTE = ['lote', 'batch'];
+const ALIASES_OBSERVACAO = ['observacao', 'obs', 'anotacao'];
+const ALIASES_EMBALAGEM = ['embalagem', 'tipo_embalagem', 'frasco_bisnaga'];
+const ALIASES_UNIDADE = ['tipo_medida', 'unidade_medida', 'unidade', 'medida'];
+const ALIASES_CONTEUDO = ['conteudo_embalagem', 'quantidade_medida', 'conteudo', 'conteudo_total'];
+const ALIASES_STATUS = ['status_conferencia', 'status', 'situacao'];
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -217,16 +249,76 @@ if (/\b(frasco|frascos|fras)\b/.test(texto)) return 'frasco';
 return null;
 };
 
+const normalizarDataISO = (valor: string | undefined) => {
+if (!valor) return '';
+const texto = valor.trim().replace(/^\uFEFF/, '');
+if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+
+const partesBR = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+if (partesBR) return `${partesBR[3]}-${partesBR[2]}-${partesBR[1]}`;
+
+return texto;
+};
+
+const converterDataParaDate = (valor?: string) => {
+const dataNormalizada = normalizarDataISO(valor);
+if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNormalizada)) return new Date();
+
+const [ano, mes, dia] = dataNormalizada.split('-').map(Number);
+return new Date(ano, mes - 1, dia);
+};
+
+const obterStatusDesconto = (dataValidadeStr: string | undefined): StatusValidadeInfo => {
+if (!dataValidadeStr) return { tipo: 'ok', label: 'SEM DATA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+const hoje = new Date(); hoje.setHours(0,0,0,0);
+const partes = normalizarDataISO(dataValidadeStr).split('-');
+if (partes.length !== 3) return { tipo: 'ok', label: 'DATA ERRADA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+
+const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2])); vencimento.setHours(0,0,0,0);
+const diffTime = vencimento.getTime() - hoje.getTime();
+const diffDias = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+if (diffDias < 0) return { tipo: 'vencido', label: 'VENCIDO', cor: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' };
+if (diffDias <= 30) return { tipo: 'retirar', label: 'RETIRAR', cor: '#B91C1C', bg: '#FEF2F2', border: '#FECACA' };
+if (diffDias <= 60) return { tipo: 'markdown', label: '60% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
+if (diffDias <= 90) return { tipo: 'markdown', label: '40% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
+if (diffDias <= 120) return { tipo: 'markdown', label: '30% DESC', cor: '#B45309', bg: '#FFFBEB', border: '#FDE68A' };
+if (diffDias <= 180) return { tipo: 'markdown', label: '20% DESC', cor: '#A16207', bg: '#FEFCE8', border: '#FEF08A' };
+return { tipo: 'ok', label: 'NO PRAZO', cor: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' };
+};
+
+const obterDiasAteValidade = (dataValidadeStr: string | undefined) => {
+if (!dataValidadeStr) return Number.POSITIVE_INFINITY;
+const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+const partes = normalizarDataISO(dataValidadeStr).split('-');
+if (partes.length !== 3) return Number.POSITIVE_INFINITY;
+const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
+vencimento.setHours(0, 0, 0, 0);
+return Math.ceil((vencimento.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+};
+
+const formataDataBR = (dataStr: string | undefined) => {
+if (!dataStr) return '--/--/----';
+const partes = normalizarDataISO(dataStr).split('-');
+if (partes.length !== 3) return dataStr;
+return `${partes[2]}/${partes[1]}/${partes[0]}`;
+};
+
 export default function App() {
 const [isLoading, setIsLoading] = useState(true);
 const [permission, requestPermission] = useCameraPermissions();
+const { width } = useWindowDimensions();
+const isCompact = width < 390;
+const isTablet = width >= 768;
+const larguraKpi = isTablet ? 260 : isCompact ? 188 : 220;
 
 // ==========================================
 // ESTADOS GLOBAIS
 // ==========================================
-const [loja, setLoja] = useState('SP1');
-const [regional, setRegional] = useState('SUL');
-const [colaborador, setColaborador] = useState('Matheus');
+const [loja, setLoja] = useState('[Loja]');
+const [regional, setRegional] = useState('[Regional]');
+const [colaborador, setColaborador] = useState('[Seu nome]');
+const [autoExcluirVencidos, setAutoExcluirVencidos] = useState(false);
 const [produtos, setProdutos] = useState<Produto[]>([]);
 
 const [showForm, setShowForm] = useState(false);
@@ -243,6 +335,15 @@ const [filtroStatusConferencia, setFiltroStatusConferencia] = useState<StatusCon
 const [filtroUnidadeMedida, setFiltroUnidadeMedida] = useState<UnidadeMedida | 'todos'>('todos');
 const [filtroEmbalagem, setFiltroEmbalagem] = useState<TipoEmbalagem | 'todos'>('todos');
 const [historico, setHistorico] = useState<HistoricoRegistro[]>([]);
+const [filtroHistoricoDataInicio, setFiltroHistoricoDataInicio] = useState('');
+const [filtroHistoricoDataFim, setFiltroHistoricoDataFim] = useState('');
+const [filtroHistoricoTipo, setFiltroHistoricoTipo] = useState('todos');
+const [showImportPreview, setShowImportPreview] = useState(false);
+const [itensImportacaoPreview, setItensImportacaoPreview] = useState<Produto[]>([]);
+const [nomeArquivoImportacao, setNomeArquivoImportacao] = useState('');
+const [filtroImportPreview, setFiltroImportPreview] = useState('');
+const [importandoPreview, setImportandoPreview] = useState(false);
+const [exportandoPlanilha, setExportandoPlanilha] = useState(false);
 
 const [buscandoNaApi, setBuscandoNaApi] = useState(false);
 const [isScanning, setIsScanning] = useState(false);
@@ -254,10 +355,17 @@ const [editandoId, setEditandoId] = useState<string | null>(null);
 const [showNotificacao, setShowNotificacao] = useState(false);
 const [mensagemNotificacao, setMensagemNotificacao] = useState('');
 const opacidadeNotificacao = useRef(new Animated.Value(0)).current;
+const deslocamentoNotificacao = useRef(new Animated.Value(-12)).current;
+const deslocamentoSidebar = useRef(new Animated.Value(28)).current;
+const deslocamentoBottomSheet = useRef(new Animated.Value(36)).current;
+const opacidadePainelModal = useRef(new Animated.Value(0)).current;
 
 // DATE PICKER
 const [showDatePicker, setShowDatePicker] = useState(false);
 const [dataValidadeSelecionada, setDataValidadeSelecionada] = useState(new Date());
+const [showHistoricoDatePicker, setShowHistoricoDatePicker] = useState(false);
+const [dataHistoricoSelecionada, setDataHistoricoSelecionada] = useState(new Date());
+const [alvoDatePickerHistorico, setAlvoDatePickerHistorico] = useState<'inicio' | 'fim'>('inicio');
 
 // Campos do Formulário
 const [novoNome, setNovoNome] = useState('');
@@ -276,9 +384,12 @@ const [novoStatusConferencia, setNovoStatusConferencia] = useState<StatusConfere
 const [tempLoja, setTempLoja] = useState('');
 const [tempRegional, setTempRegional] = useState('');
 const [tempColaborador, setTempColaborador] = useState('');
+const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
 
 const ultimoCodigoBuscado = useRef('');
 const cacheEanMemoria = useRef<Record<string, CadastroEan>>({});
+const bancoAbertoRef = useRef<Promise<BancoDados> | null>(null);
+const importacaoEmAndamentoRef = useRef(false);
 
 const gerarId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -311,25 +422,6 @@ return Array.from(totais.entries())
     const valor = Number.isInteger(total) ? String(total) : total.toFixed(2).replace('.', ',');
     return `${valor} ${ROTULOS_UNIDADE_MEDIDA[unidade]}`;
   });
-};
-
-const normalizarDataISO = (valor: string | undefined) => {
-if (!valor) return '';
-const texto = valor.trim().replace(/^\uFEFF/, '');
-if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
-
-const partesBR = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-if (partesBR) return `${partesBR[3]}-${partesBR[2]}-${partesBR[1]}`;
-
-return texto;
-};
-
-const converterDataParaDate = (valor?: string) => {
-const dataNormalizada = normalizarDataISO(valor);
-if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNormalizada)) return new Date();
-
-const [ano, mes, dia] = dataNormalizada.split('-').map(Number);
-return new Date(ano, mes - 1, dia);
 };
 
 const normalizarCabecalho = (valor: string) => valor.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -422,9 +514,45 @@ for (const alias of aliases) {
   return '';
 };
 
+const linhaPareceCabecalhoProdutos = (linha: string[]) => {
+const colunas = linha.map((coluna) => normalizarCabecalho(String(coluna || ''))).filter(Boolean);
+if (colunas.length < 3) return false;
+
+const temNome = colunas.some((coluna) => ALIASES_NOME_PRODUTO.includes(coluna));
+const temCodigo = colunas.some((coluna) => ALIASES_CODIGO_PRODUTO.includes(coluna));
+const temValidade = colunas.some((coluna) => ALIASES_VALIDADE_PRODUTO.includes(coluna));
+return temNome && temCodigo && temValidade;
+};
+
+const normalizarStatusConferenciaImportado = (valor?: string): StatusConferencia => {
+const texto = normalizarCabecalho(valor || '');
+if (texto === 'conferido') return 'conferido';
+if (texto === 'resolvido') return 'resolvido';
+return 'pendente';
+};
+
+const normalizarCodigoImportado = (valor?: string) => {
+const texto = String(valor || '').replace(/^\uFEFF/, '').trim();
+if (!texto) return '';
+
+if (/^\d+\.0+$/.test(texto)) {
+  return texto.replace(/\.0+$/, '');
+}
+
+return texto;
+};
+
 const formatarDataHora = (timestamp: number) => {
 const data = new Date(timestamp);
 return `${data.toLocaleDateString('pt-BR')} ${data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const obterTipoProduto = (produto: Pick<Produto, 'embalagem' | 'unidade_medida' | 'apresentacao'>) => {
+const embalagem = produto.embalagem || inferirTipoEmbalagem(produto.apresentacao) || '';
+if (embalagem) return ROTULOS_TIPO_EMBALAGEM[embalagem as TipoEmbalagem];
+
+const unidade = produto.unidade_medida || inferirMedidaDaApresentacao(produto.apresentacao).unidade_medida;
+return ROTULOS_UNIDADE_MEDIDA[unidade] || 'sem tipo';
 };
 
 const preencherCamposDoProduto = useCallback((cadastro: CadastroEan) => {
@@ -438,7 +566,21 @@ setNovaUnidadeMedida(medidaInferida.unidade_medida);
 setNovaQuantidadeMedida(medidaInferida.quantidade_medida ? String(medidaInferida.quantidade_medida) : '');
 }, []);
 
-const abrirBanco = useCallback(() => SQLite.openDatabaseAsync('farmacia.db'), []);
+const abrirBanco = useCallback(async () => {
+if (!bancoAbertoRef.current) {
+  bancoAbertoRef.current = SQLite.openDatabaseAsync('farmacia.db');
+}
+
+return await bancoAbertoRef.current;
+}, []);
+
+const fecharBancoAtual = useCallback(async () => {
+if (!bancoAbertoRef.current) return;
+
+const db = await bancoAbertoRef.current;
+await db.closeAsync();
+ bancoAbertoRef.current = null;
+}, []);
 
 const configurarNotificacoes = useCallback(async () => {
 if (Platform.OS === 'web') return false;
@@ -533,7 +675,7 @@ setHistorico(registros);
 const registrarHistorico = useCallback(async (entrada: Omit<HistoricoRegistro, 'id' | 'data_evento'>, dbAtual?: BancoDados) => {
 const db = dbAtual || await abrirBanco();
 await db.runAsync(
-  'INSERT INTO historico_produtos (id, produto_id, acao, nome, codigo, colaborador, data_evento, detalhes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  'INSERT INTO historico_produtos (id, produto_id, acao, nome, codigo, colaborador, data_evento, detalhes, tipo_produto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   gerarId(),
   entrada.produto_id,
   entrada.acao,
@@ -541,9 +683,17 @@ await db.runAsync(
   entrada.codigo,
   entrada.colaborador,
   Date.now(),
-  entrada.detalhes
+  entrada.detalhes,
+  entrada.tipo_produto || ''
 );
 }, [abrirBanco]);
+
+const garantirColuna = useCallback(async (db: BancoDados, tabela: string, definicao: string) => {
+const nomeColuna = definicao.trim().split(/\s+/)[0];
+const colunas = await db.getAllAsync<ColunaTabela>(`PRAGMA table_info(${tabela})`);
+if (colunas.some((coluna) => coluna.name === nomeColuna)) return;
+await db.runAsync(`ALTER TABLE ${tabela} ADD COLUMN ${definicao}`);
+}, []);
 
 const gerarAlertasCadastro = () => {
 const alertas: string[] = [];
@@ -639,14 +789,16 @@ try {
 const l = await AsyncStorage.getItem('@loja');
 const r = await AsyncStorage.getItem('@regional');
 const c = await AsyncStorage.getItem('@colaborador');
+const autoExcluir = await AsyncStorage.getItem(CHAVE_AUTO_EXCLUIR_VENCIDOS);
 if (l) setLoja(l);
 if (r) setRegional(r);
 if (c) setColaborador(c);
+setAutoExcluirVencidos(autoExcluir === 'true');
 
   // 2. Inicializar Banco de Dados (SQLite)
   const db = await abrirBanco();
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS produtos (
+  await db.runAsync(
+    `CREATE TABLE IF NOT EXISTS produtos (
       id TEXT PRIMARY KEY NOT NULL,
       nome TEXT,
       codigo TEXT,
@@ -662,9 +814,10 @@ if (c) setColaborador(c);
       lote TEXT,
       observacao TEXT,
       status_conferencia TEXT DEFAULT 'pendente'
-    );
-
-    CREATE TABLE IF NOT EXISTS ean_cache (
+    )`
+  );
+  await db.runAsync(
+    `CREATE TABLE IF NOT EXISTS ean_cache (
       codigo TEXT PRIMARY KEY NOT NULL,
       nome TEXT NOT NULL,
       apresentacao TEXT,
@@ -674,9 +827,10 @@ if (c) setColaborador(c);
       quantidade_medida REAL DEFAULT 0,
       referencia TEXT,
       atualizado_em INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS historico_produtos (
+    )`
+  );
+  await db.runAsync(
+    `CREATE TABLE IF NOT EXISTS historico_produtos (
       id TEXT PRIMARY KEY NOT NULL,
       produto_id TEXT,
       acao TEXT,
@@ -684,74 +838,31 @@ if (c) setColaborador(c);
       codigo TEXT,
       colaborador TEXT,
       data_evento INTEGER,
-      detalhes TEXT
-    );
-  `);
+      detalhes TEXT,
+      tipo_produto TEXT
+    )`
+  );
 
-  try {
-    await db.execAsync('ALTER TABLE ean_cache ADD COLUMN referencia TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
+  await garantirColuna(db, 'ean_cache', 'referencia TEXT');
+  await garantirColuna(db, 'produtos', "unidade_medida TEXT DEFAULT 'unidades'");
+  await garantirColuna(db, 'produtos', 'embalagem TEXT');
+  await garantirColuna(db, 'produtos', 'quantidade_medida REAL DEFAULT 0');
+  await garantirColuna(db, 'produtos', 'setor TEXT');
+  await garantirColuna(db, 'produtos', 'lote TEXT');
+  await garantirColuna(db, 'produtos', 'observacao TEXT');
+  await garantirColuna(db, 'produtos', "status_conferencia TEXT DEFAULT 'pendente'");
+  await garantirColuna(db, 'ean_cache', "unidade_medida TEXT DEFAULT 'unidades'");
+  await garantirColuna(db, 'ean_cache', 'embalagem TEXT');
+  await garantirColuna(db, 'ean_cache', 'quantidade_medida REAL DEFAULT 0');
+  await garantirColuna(db, 'historico_produtos', 'tipo_produto TEXT');
 
-  try {
-    await db.execAsync("ALTER TABLE produtos ADD COLUMN unidade_medida TEXT DEFAULT 'unidades';");
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE produtos ADD COLUMN embalagem TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE produtos ADD COLUMN quantidade_medida REAL DEFAULT 0;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE produtos ADD COLUMN setor TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE produtos ADD COLUMN lote TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE produtos ADD COLUMN observacao TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync("ALTER TABLE produtos ADD COLUMN status_conferencia TEXT DEFAULT 'pendente';");
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync("ALTER TABLE ean_cache ADD COLUMN unidade_medida TEXT DEFAULT 'unidades';");
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE ean_cache ADD COLUMN embalagem TEXT;');
-  } catch {
-    // Coluna ja existente.
-  }
-
-  try {
-    await db.execAsync('ALTER TABLE ean_cache ADD COLUMN quantidade_medida REAL DEFAULT 0;');
-  } catch {
-    // Coluna ja existente.
+  const primeiraInstalacaoConcluida = await AsyncStorage.getItem(CHAVE_PRIMEIRA_INSTALACAO);
+  if (!primeiraInstalacaoConcluida) {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM produtos');
+      await db.runAsync('DELETE FROM historico_produtos');
+    });
+    await AsyncStorage.setItem(CHAVE_PRIMEIRA_INSTALACAO, 'ok');
   }
 
   await carregarBaseInternaEmbutida();
@@ -761,14 +872,15 @@ if (c) setColaborador(c);
   setProdutos(todosProdutos);
   await carregarHistorico();
   
-} catch {
-  Alert.alert("Erro", "Não foi possível inicializar a base de dados SQLite.");
+} catch (error) {
+  const mensagem = error instanceof Error ? error.message : 'Não foi possível inicializar a base de dados SQLite.';
+  Alert.alert("Erro", mensagem);
 } finally {
   setIsLoading(false);
 }
 
 
-}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico]);
+}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico, garantirColuna]);
 
 // ==========================================
 // INICIALIZAÇÃO: ASYNC STORAGE & SQLITE
@@ -786,9 +898,11 @@ try {
 await AsyncStorage.setItem('@loja', tempLoja.toUpperCase());
 await AsyncStorage.setItem('@regional', tempRegional.toUpperCase());
 await AsyncStorage.setItem('@colaborador', tempColaborador);
+await AsyncStorage.setItem(CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false');
 setLoja(tempLoja.toUpperCase());
 setRegional(tempRegional.toUpperCase());
 setColaborador(tempColaborador);
+setAutoExcluirVencidos(tempAutoExcluirVencidos);
 setShowConfig(false);
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
@@ -800,13 +914,22 @@ Alert.alert("Atenção!", "Deseja apagar TODOS os dados da base de dados local?"
 { text: "Cancelar", style: "cancel" },
 { text: "Apagar Tudo", style: "destructive", onPress: async () => {
 try {
-const db = await SQLite.openDatabaseAsync('farmacia.db');
-await db.runAsync('DELETE FROM produtos');
+setIsLoading(true);
+await fecharBancoAtual();
+await SQLite.deleteDatabaseAsync('farmacia.db');
+cacheEanMemoria.current = {};
 setProdutos([]);
+setHistorico([]);
+await AsyncStorage.removeItem(CHAVE_BASE_INTERNA);
+await AsyncStorage.setItem(CHAVE_PRIMEIRA_INSTALACAO, 'ok');
+await inicializarApp();
 setShowConfig(false);
-Alert.alert("Sucesso", "Base de dados limpa com sucesso.");
-} catch {
-Alert.alert("Erro", "Falha ao apagar dados.");
+Alert.alert("Sucesso", "Base SQLite atual foi recriada com sucesso.");
+} catch (error) {
+const mensagem = error instanceof Error ? error.message : "Falha ao resetar a base SQLite atual.";
+Alert.alert("Erro", mensagem);
+} finally {
+setIsLoading(false);
 }
 }}
 ]);
@@ -819,23 +942,42 @@ const exibirNotificacao = useCallback((mensagem: string) => {
 setMensagemNotificacao(mensagem);
 setShowNotificacao(true);
 opacidadeNotificacao.setValue(0);
+deslocamentoNotificacao.setValue(-12);
 
 Animated.sequence([
-  Animated.timing(opacidadeNotificacao, {
-    toValue: 1,
-    duration: 400,
-    useNativeDriver: true,
-  }),
-  Animated.delay(3000),
-  Animated.timing(opacidadeNotificacao, {
-    toValue: 0,
-    duration: 400,
-    useNativeDriver: true,
-  }),
+  Animated.parallel([
+    Animated.timing(opacidadeNotificacao, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+    Animated.timing(deslocamentoNotificacao, {
+      toValue: 0,
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }),
+  ]),
+  Animated.delay(3200),
+  Animated.parallel([
+    Animated.timing(opacidadeNotificacao, {
+      toValue: 0,
+      duration: 460,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }),
+    Animated.timing(deslocamentoNotificacao, {
+      toValue: -8,
+      duration: 460,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }),
+  ]),
 ]).start(() => {
   setShowNotificacao(false);
 });
-}, [opacidadeNotificacao]);
+}, [deslocamentoNotificacao, opacidadeNotificacao]);
 
 // ==========================================
 // DATE PICKER PARA VALIDADE
@@ -865,6 +1007,42 @@ setDataValidadeSelecionada(dataSelecionada);
 
 if (Platform.OS === 'android') {
   confirmarDatePicker(dataSelecionada);
+}
+};
+
+const abrirDatePickerHistorico = (alvo: 'inicio' | 'fim') => {
+setAlvoDatePickerHistorico(alvo);
+setDataHistoricoSelecionada(converterDataParaDate(alvo === 'inicio' ? filtroHistoricoDataInicio : filtroHistoricoDataFim));
+setShowHistoricoDatePicker(true);
+};
+
+const confirmarDatePickerHistorico = (novaData: Date) => {
+const year = novaData.getFullYear();
+const month = String(novaData.getMonth() + 1).padStart(2, '0');
+const day = String(novaData.getDate()).padStart(2, '0');
+const valorFormatado = `${year}-${month}-${day}`;
+setDataHistoricoSelecionada(novaData);
+
+if (alvoDatePickerHistorico === 'inicio') {
+  setFiltroHistoricoDataInicio(valorFormatado);
+} else {
+  setFiltroHistoricoDataFim(valorFormatado);
+}
+
+setShowHistoricoDatePicker(false);
+};
+
+const aoMudarDatePickerHistorico = (evento: DateTimePickerEvent, data?: Date) => {
+if (evento.type === 'dismissed') {
+  setShowHistoricoDatePicker(false);
+  return;
+}
+
+const dataSelecionada = data ?? dataHistoricoSelecionada;
+setDataHistoricoSelecionada(dataSelecionada);
+
+if (Platform.OS === 'android') {
+  confirmarDatePickerHistorico(dataSelecionada);
 }
 };
 
@@ -934,53 +1112,29 @@ const intervalo = setInterval(() => {
 return () => clearInterval(intervalo);
 }, [exibirNotificacao]);
 
-const obterStatusDesconto = (dataValidadeStr: string | undefined) => {
-if (!dataValidadeStr) return { tipo: 'ok', label: 'SEM DATA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
-const hoje = new Date(); hoje.setHours(0,0,0,0);
-const partes = normalizarDataISO(dataValidadeStr).split('-');
-if (partes.length !== 3) return { tipo: 'ok', label: 'DATA ERRADA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
+const sanitizarTrechoArquivo = (valor: string) => valor
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-zA-Z0-9_-]+/g, '_')
+  .replace(/^_+|_+$/g, '') || 'arquivo';
 
-const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2])); vencimento.setHours(0,0,0,0);
-const diffTime = vencimento.getTime() - hoje.getTime();
-const diffDias = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-if (diffDias < 0) return { tipo: 'vencido', label: 'VENCIDO', cor: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' };
-if (diffDias <= 30) return { tipo: 'retirar', label: 'RETIRAR', cor: '#B91C1C', bg: '#FEF2F2', border: '#FECACA' };
-if (diffDias <= 60) return { tipo: 'markdown', label: '60% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
-if (diffDias <= 90) return { tipo: 'markdown', label: '40% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
-if (diffDias <= 120) return { tipo: 'markdown', label: '30% DESC', cor: '#B45309', bg: '#FFFBEB', border: '#FDE68A' };
-if (diffDias <= 180) return { tipo: 'markdown', label: '20% DESC', cor: '#A16207', bg: '#FEFCE8', border: '#FEF08A' };
-return { tipo: 'ok', label: 'NO PRAZO', cor: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' };
-
-
-};
-
-const obterDiasAteValidade = (dataValidadeStr: string | undefined) => {
-if (!dataValidadeStr) return Number.POSITIVE_INFINITY;
-const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-const partes = normalizarDataISO(dataValidadeStr).split('-');
-if (partes.length !== 3) return Number.POSITIVE_INFINITY;
-const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-vencimento.setHours(0, 0, 0, 0);
-return Math.ceil((vencimento.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
-};
-
-const formataDataBR = (dataStr: string | undefined) => {
-if (!dataStr) return '--/--/----';
-const partes = normalizarDataISO(dataStr).split('-');
-if (partes.length !== 3) return dataStr;
-return `${partes[2]}/${partes[1]}/${partes[0]}`;
+const salvarWorkbookEmArquivo = async (workbook: XLSX.WorkBook, fileName: string) => {
+const arquivo = new File(Paths.document, fileName);
+const conteudoArray = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+arquivo.create({ intermediates: true, overwrite: true });
+arquivo.write(new Uint8Array(conteudoArray));
+return arquivo;
 };
 
 // ==========================================
 // EXPORTAÇÃO E IMPORTAÇÃO NATIVA (EXCEL)
 // ==========================================
-const exportarParaExcel = async () => {
+const exportarParaExcel = useCallback(async () => {
 if (produtos.length === 0) return Alert.alert("Aviso", "Não há produtos para exportar.");
+if (exportandoPlanilha) return;
 
 const dataExportacao = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-const fileName = `Validades_${loja}_${new Date().getTime()}.xlsx`;
-const arquivoExportacao = new File(Paths.cache, fileName);
+const fileName = `Validades_${sanitizarTrechoArquivo(loja)}_${Date.now()}.xlsx`;
 
 const montarLinhasProdutos = (lista: Produto[]) => [
   ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Status', 'Quantidade', 'Colaborador', 'Setor', 'Lote', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
@@ -1002,9 +1156,21 @@ const montarLinhasProdutos = (lista: Produto[]) => [
   ]),
 ];
 
+const resumoExportacaoMap = new Map<string, { colaborador: string; qtd: number; risco: number; markdown: number }>();
+
+for (const produto of produtos) {
+  const chaveColaborador = produto.colaborador || 'Sem nome';
+  const acumulado = resumoExportacaoMap.get(chaveColaborador) || { colaborador: chaveColaborador, qtd: 0, risco: 0, markdown: 0 };
+  const status = obterStatusDesconto(produto.validade).tipo;
+  acumulado.qtd += produto.qtd;
+  if (status === 'retirar' || status === 'vencido') acumulado.risco += produto.qtd;
+  if (status === 'markdown') acumulado.markdown += produto.qtd;
+  resumoExportacaoMap.set(chaveColaborador, acumulado);
+}
+
 const planilhaResumoColaborador = [
   ['Colaborador', 'Quantidade_Auditada', 'Risco_Imediato', 'Markdown'],
-  ...resumoPorColaborador.map((item) => [item.colaborador, item.qtd, item.risco, item.markdown]),
+  ...Array.from(resumoExportacaoMap.values()).sort((a, b) => b.qtd - a.qtd).map((item) => [item.colaborador, item.qtd, item.risco, item.markdown]),
 ];
 
 const planilhaHistorico = [
@@ -1013,6 +1179,7 @@ const planilhaHistorico = [
 ];
 
 try {
+  setExportandoPlanilha(true);
   const workbook = XLSX.utils.book_new();
   const worksheetTodos = XLSX.utils.aoa_to_sheet([
     ['Loja', loja, 'Regional', regional, 'Data', dataExportacao],
@@ -1033,9 +1200,7 @@ try {
   XLSX.utils.book_append_sheet(workbook, worksheetResumo, 'Resumo_Colaborador');
   XLSX.utils.book_append_sheet(workbook, worksheetHistorico, 'Historico');
 
-  const conteudoBase64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
-  arquivoExportacao.create({ intermediates: true, overwrite: true });
-  arquivoExportacao.write(conteudoBase64, { encoding: 'base64' });
+  const arquivoExportacao = await salvarWorkbookEmArquivo(workbook, fileName);
 
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(arquivoExportacao.uri, {
@@ -1046,14 +1211,110 @@ try {
   }
 
   exibirNotificacao(`Arquivo XLSX criado! (${produtos.length} produtos)`);
-  Alert.alert("Exportação concluída", `Arquivo XLSX pronto para compartilhamento:\n${arquivoExportacao.uri}`);
 } catch (error) {
   const mensagem = error instanceof Error ? error.message : 'Não foi possível exportar o ficheiro.';
   Alert.alert("Erro na exportação", mensagem);
+} finally {
+  setExportandoPlanilha(false);
 }
 
 
-};
+}, [exibirNotificacao, exportandoPlanilha, historico, loja, produtos, regional]);
+
+const baixarModeloPlanilha = useCallback(async () => {
+try {
+  const fileName = `Modelo_Importacao_Validades_${Date.now()}.xlsx`;
+  const workbook = XLSX.utils.book_new();
+
+  const worksheetModelo = XLSX.utils.aoa_to_sheet([
+    ['Nome', 'Codigo_EAN', 'Validade', 'Apresentacao', 'Quantidade', 'Colaborador', 'Setor', 'Lote', 'Observacao', 'Embalagem', 'Tipo_Medida', 'Conteudo_Embalagem', 'Status_Conferencia'],
+    ['Dipirona 500mg', '7891234567890', '2026-12-31', 'Caixa com 20 comprimidos', '2', colaborador, 'Balcao', 'L123', 'Exemplo de observacao', 'frasco', 'comprimidos', '20', 'pendente'],
+  ]);
+
+  const worksheetMinimo = XLSX.utils.aoa_to_sheet([
+    ['Nome', 'Codigo_EAN', 'Validade'],
+    ['Paracetamol 750mg', '7890001112223', '2026-10-15'],
+  ]);
+
+  const worksheetInstrucoes = XLSX.utils.aoa_to_sheet([
+    ['Como importar'],
+    ['1. A aba Modelo_Completo mostra todas as colunas aceitas.'],
+    ['2. A aba Modelo_Minimo funciona apenas com Nome, Codigo_EAN e Validade.'],
+    ['3. A ordem das colunas com cabecalho pode ser alterada.'],
+    ['4. A validade deve estar em AAAA-MM-DD ou DD/MM/AAAA.'],
+    ['5. O app aceita CSV, XLS e XLSX.'],
+  ]);
+
+  XLSX.utils.book_append_sheet(workbook, worksheetModelo, 'Modelo_Completo');
+  XLSX.utils.book_append_sheet(workbook, worksheetMinimo, 'Modelo_Minimo');
+  XLSX.utils.book_append_sheet(workbook, worksheetInstrucoes, 'Instrucoes');
+
+  const arquivoModelo = await salvarWorkbookEmArquivo(workbook, fileName);
+
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(arquivoModelo.uri, {
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      dialogTitle: 'Baixar modelo de importacao',
+      UTI: 'org.openxmlformats.spreadsheetml.sheet',
+    });
+  }
+
+  exibirNotificacao('Modelo de importacao criado com sucesso.');
+} catch (error) {
+  const mensagem = error instanceof Error ? error.message : 'Nao foi possivel gerar o modelo de importacao.';
+  Alert.alert('Erro', mensagem);
+}
+}, [colaborador, exibirNotificacao]);
+
+const importarProdutosDaPreview = useCallback(async (listaProdutos: Produto[]) => {
+if (importacaoEmAndamentoRef.current) return;
+
+try {
+  importacaoEmAndamentoRef.current = true;
+  setImportandoPreview(true);
+  const db = await abrirBanco();
+  await db.withTransactionAsync(async () => {
+    for (const p of listaProdutos) {
+      const novoIdImportado = gerarId();
+      await db.runAsync(
+        'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        novoIdImportado, p.nome, p.codigo, p.apresentacao || '', p.embalagem || '', p.unidade_medida || 'unidades', p.quantidade_medida || 0, p.validade, p.custo, p.qtd, p.colaborador, p.setor || '', p.lote || '', p.observacao || '', p.status_conferencia || 'pendente'
+      );
+      await registrarHistorico({
+        produto_id: novoIdImportado,
+        acao: 'importacao',
+        nome: p.nome,
+        codigo: p.codigo,
+        colaborador: p.colaborador,
+        detalhes: `Qtd ${p.qtd} | Val ${p.validade}`,
+        tipo_produto: obterTipoProduto(p),
+      }, db);
+    }
+  });
+
+  const todosProdutos = await db.getAllAsync('SELECT * FROM produtos');
+  setProdutos(todosProdutos as Produto[]);
+  await carregarHistorico();
+  setShowImportPreview(false);
+  setItensImportacaoPreview([]);
+  setNomeArquivoImportacao('');
+  setFiltroImportPreview('');
+  Alert.alert('Sucesso', `${listaProdutos.length} produtos importados com sucesso!`);
+} catch (error) {
+  const mensagem = error instanceof Error ? error.message : 'Falha ao gravar importação na base de dados.';
+  Alert.alert('Erro', mensagem);
+} finally {
+  importacaoEmAndamentoRef.current = false;
+  setImportandoPreview(false);
+}
+}, [abrirBanco, carregarHistorico, registrarHistorico]);
+
+const voltarDaSelecaoImportacao = useCallback(() => {
+setShowImportPreview(false);
+setItensImportacaoPreview([]);
+setNomeArquivoImportacao('');
+setFiltroImportPreview('');
+}, []);
 
 const importarDeExcel = async () => {
 try {
@@ -1067,14 +1328,14 @@ copyToCacheDirectory: true
   const file = result.assets[0];
   const linhas = await lerPlanilhaComoLinhas(file);
   const novosProdutos: Produto[] = [];
-  const inicioDados = linhas.findIndex((linha) => normalizarCabecalho(linha[0] || '') === 'nome');
+  const inicioDados = linhas.findIndex((linha) => linhaPareceCabecalhoProdutos(linha.map((coluna) => String(coluna || ''))));
   const cabecalhoLinha = inicioDados >= 0 ? linhas[inicioDados] : [];
   const cabecalhos = cabecalhoLinha.map((coluna) => normalizarCabecalho(String(coluna || '')));
   const linhasDados = inicioDados >= 0 ? linhas.slice(inicioDados + 1) : linhas;
   
   for (let i = 0; i < linhasDados.length; i++) {
     const cols = linhasDados[i].map((coluna) => String(coluna || '').trim());
-    if (cols.length >= 7) {
+    if (cols.some(Boolean)) {
       const registro = cabecalhos.length
         ? cabecalhos.reduce<Record<string, string>>((acc, cabecalho, index) => {
             acc[cabecalho] = cols[index] || '';
@@ -1082,13 +1343,18 @@ copyToCacheDirectory: true
           }, {})
         : {};
 
-      const nome = cabecalhos.length ? obterValorPorCabecalho(registro, ['nome']) : cols[0];
-      const apresentacao = cabecalhos.length ? obterValorPorCabecalho(registro, ['apresentacao']) : cols[1];
-      const codigo = cabecalhos.length ? obterValorPorCabecalho(registro, ['codigo_ean', 'codigo', 'ean']) : cols[2];
-      const validade = cabecalhos.length ? obterValorPorCabecalho(registro, ['validade']) : cols[3];
+      const layoutMinimoSemCabecalho = !cabecalhos.length && cols.length === 3;
+
+      const nome = cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_NOME_PRODUTO) : cols[0];
+      const apresentacao = cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_APRESENTACAO) : (layoutMinimoSemCabecalho ? '' : cols[1]);
+      const codigoBruto = cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_CODIGO_PRODUTO) : (layoutMinimoSemCabecalho ? cols[1] : cols[2]);
+      const codigo = normalizarCodigoImportado(codigoBruto);
+      const validade = cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_VALIDADE_PRODUTO) : (layoutMinimoSemCabecalho ? cols[2] : cols[3]);
       if (!nome || !codigo || !validade) continue;
 
       const validadeNormalizada = normalizarDataISO(validade);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(validadeNormalizada)) continue;
+
       const medidaInferida = inferirMedidaDaApresentacao(apresentacao);
       const embalagemInferida = inferirTipoEmbalagem(apresentacao);
       const possuiColunaCustoLegada = !cabecalhos.length && cols.length === 8;
@@ -1098,51 +1364,27 @@ copyToCacheDirectory: true
         id: gerarId(), 
         nome,
         apresentacao,
-        embalagem: (cabecalhos.length ? obterValorPorCabecalho(registro, ['embalagem']) : '') as TipoEmbalagem || embalagemInferida || undefined,
+        embalagem: (cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_EMBALAGEM) : '') as TipoEmbalagem || embalagemInferida || undefined,
         codigo,
-        unidade_medida: ((cabecalhos.length ? obterValorPorCabecalho(registro, ['tipo_medida', 'unidade_medida']) : (possuiColunaMedida ? cols[7] : '')) || medidaInferida.unidade_medida) as UnidadeMedida,
-        quantidade_medida: parseNumeroMedida((cabecalhos.length ? obterValorPorCabecalho(registro, ['conteudo_embalagem', 'quantidade_medida']) : (possuiColunaMedida ? cols[8] : String(medidaInferida.quantidade_medida))) || String(medidaInferida.quantidade_medida)),
+        unidade_medida: ((cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_UNIDADE) : (possuiColunaMedida ? cols[7] : '')) || medidaInferida.unidade_medida) as UnidadeMedida,
+        quantidade_medida: parseNumeroMedida((cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_CONTEUDO) : (possuiColunaMedida ? cols[8] : String(medidaInferida.quantidade_medida))) || String(medidaInferida.quantidade_medida)),
         validade: validadeNormalizada,
         custo: 0,
-        qtd: parseInt((cabecalhos.length ? obterValorPorCabecalho(registro, ['quantidade', 'qtd']) : cols[possuiColunaCustoLegada ? 6 : 5]) || '1', 10) || 1,
-        colaborador: (cabecalhos.length ? obterValorPorCabecalho(registro, ['colaborador']) : cols[possuiColunaMedida ? 6 : (possuiColunaCustoLegada ? 7 : 6)]) || colaborador,
-        setor: cabecalhos.length ? obterValorPorCabecalho(registro, ['setor']) : '',
-        lote: cabecalhos.length ? obterValorPorCabecalho(registro, ['lote']) : '',
-        observacao: cabecalhos.length ? obterValorPorCabecalho(registro, ['observacao']) : '',
-        status_conferencia: ((cabecalhos.length ? obterValorPorCabecalho(registro, ['status_conferencia']) : '') || 'pendente') as StatusConferencia,
+        qtd: parseInt((cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_QUANTIDADE) : (layoutMinimoSemCabecalho ? '1' : cols[possuiColunaCustoLegada ? 6 : 5])) || '1', 10) || 1,
+        colaborador: (cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_COLABORADOR) : (layoutMinimoSemCabecalho ? colaborador : cols[possuiColunaMedida ? 6 : (possuiColunaCustoLegada ? 7 : 6)])) || colaborador,
+        setor: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_SETOR) : '',
+        lote: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_LOTE) : '',
+        observacao: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_OBSERVACAO) : '',
+        status_conferencia: normalizarStatusConferenciaImportado(cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_STATUS) : ''),
       });
     }
   }
   
   if (novosProdutos.length > 0) {
-    Alert.alert("Importar", `Foram encontrados ${novosProdutos.length} produtos válidos. Adicionar à base de dados?`, [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Adicionar", onPress: async () => {
-          try {
-            const db = await SQLite.openDatabaseAsync('farmacia.db');
-            for (const p of novosProdutos) {
-              await db.runAsync(
-                'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                p.id, p.nome, p.codigo, p.apresentacao || '', p.embalagem || '', p.unidade_medida || 'unidades', p.quantidade_medida || 0, p.validade, p.custo, p.qtd, p.colaborador, p.setor || '', p.lote || '', p.observacao || '', p.status_conferencia || 'pendente'
-              );
-              await registrarHistorico({
-                produto_id: p.id,
-                acao: 'importacao',
-                nome: p.nome,
-                codigo: p.codigo,
-                colaborador: p.colaborador,
-                detalhes: `Qtd ${p.qtd} | Val ${p.validade}`,
-              }, db);
-            }
-            const todosProdutos = await db.getAllAsync('SELECT * FROM produtos');
-            setProdutos(todosProdutos as Produto[]);
-            await carregarHistorico();
-            Alert.alert("Sucesso", "Produtos importados com sucesso!");
-          } catch {
-            Alert.alert("Erro", "Falha ao gravar importação na base de dados.");
-          }
-      }}
-    ]);
+    setItensImportacaoPreview(novosProdutos);
+    setNomeArquivoImportacao(file.name || 'Planilha selecionada');
+    setFiltroImportPreview('');
+    setShowImportPreview(true);
   } else {
     Alert.alert("Aviso", "Nenhum produto válido encontrado. Verifique se o arquivo CSV/XLSX contém nome, código e validade.");
   }
@@ -1183,7 +1425,7 @@ copyToCacheDirectory: true
       return acc;
     }, {});
 
-    const codigo = obterValorPorCabecalho(registro, [
+    const codigo = normalizarCodigoImportado(obterValorPorCabecalho(registro, [
       'codigo_ean',
       'codigo',
       'ean',
@@ -1194,7 +1436,7 @@ copyToCacheDirectory: true
       'numero_registro',
       'registro',
       'registro_anvisa'
-    ]).replace(/\D/g, '');
+    ]));
 
     const nome = obterValorPorCabecalho(registro, [
       'nome',
@@ -1299,49 +1541,60 @@ return Alert.alert('Atenção', 'Preencha todos os campos obrigatórios!');
 
 const persistir = async () => {
   try {
-    const db = await SQLite.openDatabaseAsync('farmacia.db');
+    const db = await abrirBanco();
     const qtdNum = parseInt(novaQtd, 10) || 1;
     const quantidadeMedidaNum = parseNumeroMedida(novaQuantidadeMedida);
     const embalagemFinal = novaEmbalagem || inferirTipoEmbalagem(novaApresentacao) || '';
     const setorFinal = novoSetor.trim();
     const loteFinal = novoLote.trim();
     const observacaoFinal = novaObservacao.trim();
+    const validadeNormalizada = normalizarDataISO(novaValidade);
 
-    if (editandoId) {
-      await db.runAsync(
-        'UPDATE produtos SET nome = ?, codigo = ?, apresentacao = ?, embalagem = ?, unidade_medida = ?, quantidade_medida = ?, validade = ?, custo = ?, qtd = ?, colaborador = ?, setor = ?, lote = ?, observacao = ?, status_conferencia = ? WHERE id = ?',
-        novoNome, novoCodigo, novaApresentacao, embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, novaValidade, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia, editandoId
-      );
-      await registrarHistorico({
-        produto_id: editandoId,
-        acao: 'edicao',
-        nome: novoNome,
-        codigo: novoCodigo,
-        colaborador,
-        detalhes: `Qtd ${qtdNum} | Val ${novaValidade} | Status ${novoStatusConferencia}`,
-      }, db);
-    } else {
-      const novoId = gerarId();
-      await db.runAsync(
-        'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        novoId, novoNome, novoCodigo, novaApresentacao, embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, novaValidade, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia
-      );
-      await registrarHistorico({
-        produto_id: novoId,
-        acao: 'cadastro',
-        nome: novoNome,
-        codigo: novoCodigo,
-        colaborador,
-        detalhes: `Qtd ${qtdNum} | Val ${novaValidade} | Status ${novoStatusConferencia}`,
-      }, db);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(validadeNormalizada)) {
+      Alert.alert('Erro', 'A validade precisa estar no formato AAAA-MM-DD ou DD/MM/AAAA.');
+      return;
     }
+
+    await db.withTransactionAsync(async () => {
+      if (editandoId) {
+        await db.runAsync(
+          'UPDATE produtos SET nome = ?, codigo = ?, apresentacao = ?, embalagem = ?, unidade_medida = ?, quantidade_medida = ?, validade = ?, custo = ?, qtd = ?, colaborador = ?, setor = ?, lote = ?, observacao = ?, status_conferencia = ? WHERE id = ?',
+          novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia, editandoId
+        );
+        await registrarHistorico({
+          produto_id: editandoId,
+          acao: 'edicao',
+          nome: novoNome.trim(),
+          codigo: novoCodigo.trim(),
+          colaborador,
+          detalhes: `Qtd ${qtdNum} | Val ${validadeNormalizada} | Status ${novoStatusConferencia}`,
+          tipo_produto: obterTipoProduto({ embalagem: embalagemFinal as TipoEmbalagem | undefined, unidade_medida: novaUnidadeMedida, apresentacao: novaApresentacao }),
+        }, db);
+      } else {
+        const novoId = gerarId();
+        await db.runAsync(
+          'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          novoId, novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia
+        );
+        await registrarHistorico({
+          produto_id: novoId,
+          acao: 'cadastro',
+          nome: novoNome.trim(),
+          codigo: novoCodigo.trim(),
+          colaborador,
+          detalhes: `Qtd ${qtdNum} | Val ${validadeNormalizada} | Status ${novoStatusConferencia}`,
+          tipo_produto: obterTipoProduto({ embalagem: embalagemFinal as TipoEmbalagem | undefined, unidade_medida: novaUnidadeMedida, apresentacao: novaApresentacao }),
+        }, db);
+      }
+    });
 
     const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
     setProdutos(todosProdutos);
     await carregarHistorico();
     limparFormulario();
-  } catch {
-    Alert.alert('Erro', 'Não foi possível gravar na base de dados.');
+  } catch (error) {
+    const mensagem = error instanceof Error ? error.message : 'Não foi possível gravar na base de dados.';
+    Alert.alert('Erro', mensagem);
   }
 };
 
@@ -1359,7 +1612,7 @@ await persistir();
 
 };
 
-const iniciarEdicao = (p: Produto) => {
+const iniciarEdicao = useCallback((p: Produto) => {
 setEditandoId(p.id);
 setNovoCodigo(p.codigo);
 setNovoNome(p.nome);
@@ -1375,44 +1628,7 @@ setNovaObservacao(p.observacao || '');
 setNovoStatusConferencia((p.status_conferencia || 'pendente') as StatusConferencia);
 setDataValidadeSelecionada(converterDataParaDate(p.validade));
 setShowForm(true);
-};
-
-const removerProduto = (id: string) => {
-Alert.alert("Excluir", "Tem a certeza que deseja remover este produto da base de dados?", [
-{ text: "Cancelar", style: "cancel" },
-{ text: "Excluir", style: "destructive", onPress: async () => {
-try {
-const db = await abrirBanco();
-let produtoRemovido: Produto | null = null;
-
-await db.withTransactionAsync(async () => {
-  produtoRemovido = await db.getFirstAsync('SELECT * FROM produtos WHERE id = ?', id) as Produto | null;
-  await db.runAsync('DELETE FROM produtos WHERE id = ?', id);
-
-  if (produtoRemovido) {
-    await registrarHistorico({
-      produto_id: produtoRemovido.id,
-      acao: 'exclusao',
-      nome: produtoRemovido.nome,
-      codigo: produtoRemovido.codigo,
-      colaborador,
-      detalhes: `Qtd ${produtoRemovido.qtd} | Val ${produtoRemovido.validade}`,
-    }, db);
-  }
-});
-
-if (editandoId === id) {
-  limparFormulario();
-}
-
-setProdutos((estadoAtual) => estadoAtual.filter((produto) => produto.id !== id));
-await carregarHistorico();
-} catch {
-Alert.alert("Erro", "Falha ao apagar o produto.");
-}
-}}
-]);
-};
+}, []);
 
 const limparFormulario = () => {
 setEditandoId(null);
@@ -1433,80 +1649,357 @@ ultimoCodigoBuscado.current = '';
 setShowForm(false);
 };
 
+const excluirProdutosSilenciosamente = useCallback(async (ids: string[]) => {
+if (ids.length === 0) return 0;
+
+const db = await abrirBanco();
+const idsSet = new Set(ids);
+
+await db.withExclusiveTransactionAsync(async (txn) => {
+  for (const id of ids) {
+    await txn.runAsync('DELETE FROM produtos WHERE id = ?', [id]);
+  }
+});
+
+if (editandoId && idsSet.has(editandoId)) {
+  limparFormulario();
+}
+
+const produtosAtualizados = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
+setProdutos(produtosAtualizados);
+return ids.length;
+}, [abrirBanco, editandoId]);
+
+const removerProduto = useCallback((id: string) => {
+Alert.alert("Excluir", "Tem a certeza que deseja remover este produto da base de dados?", [
+{ text: "Cancelar", style: "cancel" },
+{ text: "Excluir", style: "destructive", onPress: async () => {
+try {
+await excluirProdutosSilenciosamente([id]);
+} catch (error) {
+const mensagem = error instanceof Error ? error.message : "Falha ao apagar o produto.";
+Alert.alert("Erro", mensagem);
+}
+}}
+]);
+}, [excluirProdutosSilenciosamente]);
+
 const abrirConfiguracoes = () => {
 setTempLoja(loja);
 setTempRegional(regional);
 setTempColaborador(colaborador);
+setTempAutoExcluirVencidos(autoExcluirVencidos);
 setShowConfig(true);
 };
+
+useEffect(() => {
+if (isLoading || !autoExcluirVencidos || produtos.length === 0) return;
+
+const hoje = new Date();
+hoje.setHours(0, 0, 0, 0);
+const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+
+const idsNaDataLimite = produtos
+  .filter((produto) => {
+    const valor = String(produto.validade || '').trim().replace(/^\uFEFF/, '');
+    const partesBr = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const validadeIso = /^\d{4}-\d{2}-\d{2}$/.test(valor)
+      ? valor
+      : partesBr
+        ? `${partesBr[3]}-${partesBr[2]}-${partesBr[1]}`
+        : '';
+
+    return Boolean(validadeIso) && validadeIso <= hojeIso;
+  })
+  .map((produto) => produto.id);
+
+if (idsNaDataLimite.length === 0) return;
+
+const executarExclusaoAutomatica = async () => {
+  const removidos = await excluirProdutosSilenciosamente(idsNaDataLimite);
+  if (removidos > 0) {
+    exibirNotificacao(`${removidos} produto(s) removido(s) automaticamente na data limite.`);
+  }
+};
+
+void executarExclusaoAutomatica();
+}, [autoExcluirVencidos, excluirProdutosSilenciosamente, exibirNotificacao, isLoading, produtos]);
 
 // ==========================================
 // CÁLCULOS DOS KPIS E FILTROS
 // ==========================================
-let totalQtdAuditada = 0, qtdRiscoImediato = 0, qtdMarkdown = 0;
-let qtdVence7 = 0, qtdVence15 = 0, qtdVence30 = 0;
+const termoBuscaAdiado = useDeferredValue(termoBusca);
+const filtroImportPreviewAdiado = useDeferredValue(filtroImportPreview);
+
+const produtosComAnalise = useMemo<ProdutoComAnalise[]>(() => {
+return produtos.map((produto) => {
+  const statusValidade = obterStatusDesconto(produto.validade);
+  const diasAteValidade = obterDiasAteValidade(produto.validade);
+  const embalagemCalculada = produto.embalagem || inferirTipoEmbalagem(produto.apresentacao) || null;
+  return {
+    ...produto,
+    statusValidade,
+    diasAteValidade,
+    embalagemCalculada,
+    totalMedidoCalculado: formatarTotalMedido(produto),
+  };
+});
+}, [produtos]);
+
+const resumoKpis = useMemo(() => {
+let totalQtdAuditada = 0;
+let qtdRiscoImediato = 0;
+let qtdMarkdown = 0;
+let qtdVence7 = 0;
+let qtdVence15 = 0;
+let qtdVence30 = 0;
 const resumoColaboradorMap = new Map<string, { colaborador: string; qtd: number; risco: number; markdown: number }>();
 
-produtos.forEach((p: Produto) => {
-totalQtdAuditada += p.qtd;
-const status = obterStatusDesconto(p.validade);
-const dias = obterDiasAteValidade(p.validade);
+for (const produto of produtosComAnalise) {
+  totalQtdAuditada += produto.qtd;
 
-if (dias >= 0 && dias <= 7) qtdVence7 += p.qtd;
-if (dias >= 0 && dias <= 15) qtdVence15 += p.qtd;
-if (dias >= 0 && dias <= 30) qtdVence30 += p.qtd;
+  if (produto.diasAteValidade >= 0 && produto.diasAteValidade <= 7) qtdVence7 += produto.qtd;
+  if (produto.diasAteValidade >= 0 && produto.diasAteValidade <= 15) qtdVence15 += produto.qtd;
+  if (produto.diasAteValidade >= 0 && produto.diasAteValidade <= 30) qtdVence30 += produto.qtd;
 
-if (status.tipo === 'retirar') { qtdRiscoImediato += p.qtd; } 
-else if (status.tipo === 'vencido') { qtdRiscoImediato += p.qtd; }
-else if (status.tipo === 'markdown') { qtdMarkdown += p.qtd; }
+  if (produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'vencido') {
+    qtdRiscoImediato += produto.qtd;
+  } else if (produto.statusValidade.tipo === 'markdown') {
+    qtdMarkdown += produto.qtd;
+  }
 
-const chaveColaborador = p.colaborador || 'Sem nome';
-const acumulado = resumoColaboradorMap.get(chaveColaborador) || { colaborador: chaveColaborador, qtd: 0, risco: 0, markdown: 0 };
-acumulado.qtd += p.qtd;
-if (status.tipo === 'retirar' || status.tipo === 'vencido') acumulado.risco += p.qtd;
-if (status.tipo === 'markdown') acumulado.markdown += p.qtd;
-resumoColaboradorMap.set(chaveColaborador, acumulado);
+  const chaveColaborador = produto.colaborador || 'Sem nome';
+  const acumulado = resumoColaboradorMap.get(chaveColaborador) || { colaborador: chaveColaborador, qtd: 0, risco: 0, markdown: 0 };
+  acumulado.qtd += produto.qtd;
+  if (produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'vencido') acumulado.risco += produto.qtd;
+  if (produto.statusValidade.tipo === 'markdown') acumulado.markdown += produto.qtd;
+  resumoColaboradorMap.set(chaveColaborador, acumulado);
+}
 
-
-});
-
-const resumoPorColaborador = Array.from(resumoColaboradorMap.values()).sort((a, b) => b.qtd - a.qtd);
-
-const produtosFiltrados = produtos.filter((p: Produto) => {
-const correspondeBusca = p.nome.toLowerCase().includes(termoBusca.toLowerCase()) || p.codigo.includes(termoBusca);
-if (!correspondeBusca) return false;
-
-const status = obterStatusDesconto(p.validade);
-if (filtroValidade === 'vencidos') return status.tipo === 'vencido';
-if (filtroValidade === 'proximos') return status.tipo === 'retirar' || status.tipo === 'markdown';
-
-if (filtroColaborador && !(p.colaborador || '').toLowerCase().includes(filtroColaborador.toLowerCase())) return false;
-if (filtroSetor && (p.setor || '') !== filtroSetor) return false;
-if (filtroStatusConferencia !== 'todos' && (p.status_conferencia || 'pendente') !== filtroStatusConferencia) return false;
-if (filtroUnidadeMedida !== 'todos' && (p.unidade_medida || 'unidades') !== filtroUnidadeMedida) return false;
-if (filtroEmbalagem !== 'todos' && (p.embalagem || inferirTipoEmbalagem(p.apresentacao) || '') !== filtroEmbalagem) return false;
-
-return true;
-}).sort((a, b) => {
-const prioridade = (produto: Produto) => {
-  const status = obterStatusDesconto(produto.validade).tipo;
-  if (status === 'vencido') return 0;
-  if (status === 'retirar') return 1;
-  if (status === 'markdown') return 2;
-  return 3;
+return {
+  totalQtdAuditada,
+  qtdRiscoImediato,
+  qtdMarkdown,
+  qtdVence7,
+  qtdVence15,
+  qtdVence30,
+  resumoPorColaborador: Array.from(resumoColaboradorMap.values()).sort((a, b) => b.qtd - a.qtd),
 };
+}, [produtosComAnalise]);
+
+const tiposHistoricoDisponiveis = useMemo(
+  () => Array.from(new Set(historico.map((item) => item.tipo_produto || '').filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+  [historico]
+);
+
+const historicoFiltrado = useMemo(() => historico.filter((item) => {
+const dataEvento = new Date(item.data_evento);
+dataEvento.setHours(0, 0, 0, 0);
+
+if (filtroHistoricoDataInicio) {
+  const dataInicio = converterDataParaDate(filtroHistoricoDataInicio);
+  dataInicio.setHours(0, 0, 0, 0);
+  if (dataEvento.getTime() < dataInicio.getTime()) return false;
+}
+
+if (filtroHistoricoDataFim) {
+  const dataFim = converterDataParaDate(filtroHistoricoDataFim);
+  dataFim.setHours(0, 0, 0, 0);
+  if (dataEvento.getTime() > dataFim.getTime()) return false;
+}
+
+if (filtroHistoricoTipo !== 'todos' && (item.tipo_produto || '') !== filtroHistoricoTipo) return false;
+return true;
+}), [filtroHistoricoDataFim, filtroHistoricoDataInicio, filtroHistoricoTipo, historico]);
+
+const termoImportacaoPreview = filtroImportPreviewAdiado.trim().toLowerCase();
+const itensImportacaoPreviewFiltrados = useMemo(() => itensImportacaoPreview.filter((item) => {
+if (!termoImportacaoPreview) return true;
+
+const camposBusca = [
+  item.nome,
+  item.codigo,
+  item.apresentacao || '',
+  item.setor || '',
+  item.colaborador || '',
+].map((valor) => valor.toLowerCase());
+
+return camposBusca.some((valor) => valor.includes(termoImportacaoPreview));
+}), [itensImportacaoPreview, termoImportacaoPreview]);
+
+const resumoPreviewImportacao = useMemo(() => {
+let validos = 0;
+let vencidos = 0;
+
+for (const produto of itensImportacaoPreview) {
+  if (obterDiasAteValidade(produto.validade) >= 0) {
+    validos += 1;
+  } else {
+    vencidos += 1;
+  }
+}
+
+return {
+  total: itensImportacaoPreview.length,
+  validos,
+  vencidos,
+};
+}, [itensImportacaoPreview]);
+
+const produtosFiltrados = useMemo(() => {
+const termoBuscaNormalizado = termoBuscaAdiado.trim().toLowerCase();
+
+return produtosComAnalise.filter((produto) => {
+  const correspondeBusca = produto.nome.toLowerCase().includes(termoBuscaNormalizado) || produto.codigo.includes(termoBuscaAdiado);
+  if (!correspondeBusca) return false;
+
+  if (filtroValidade === 'vencidos') return produto.statusValidade.tipo === 'vencido';
+  if (filtroValidade === 'proximos') return produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'markdown';
+
+  if (filtroColaborador && !(produto.colaborador || '').toLowerCase().includes(filtroColaborador.toLowerCase())) return false;
+  if (filtroSetor && (produto.setor || '') !== filtroSetor) return false;
+  if (filtroStatusConferencia !== 'todos' && (produto.status_conferencia || 'pendente') !== filtroStatusConferencia) return false;
+  if (filtroUnidadeMedida !== 'todos' && (produto.unidade_medida || 'unidades') !== filtroUnidadeMedida) return false;
+  if (filtroEmbalagem !== 'todos' && (produto.embalagemCalculada || '') !== filtroEmbalagem) return false;
+
+  return true;
+}).sort((a, b) => {
+  const prioridade = (produto: ProdutoComAnalise) => {
+    if (produto.statusValidade.tipo === 'vencido') return 0;
+    if (produto.statusValidade.tipo === 'retirar') return 1;
+    if (produto.statusValidade.tipo === 'markdown') return 2;
+    return 3;
+  };
 
   const prioridadeDiff = prioridade(a) - prioridade(b);
   if (prioridadeDiff !== 0) return prioridadeDiff;
-  return obterDiasAteValidade(a.validade) - obterDiasAteValidade(b.validade);
+  return a.diasAteValidade - b.diasAteValidade;
 });
+}, [filtroColaborador, filtroEmbalagem, filtroSetor, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
 
-const totaisMedidosFiltrados = resumirTotaisMedidos(produtosFiltrados);
+const totaisMedidosFiltrados = useMemo(() => resumirTotaisMedidos(produtosFiltrados), [produtosFiltrados]);
+const { totalQtdAuditada, qtdMarkdown, qtdRiscoImediato, qtdVence7, qtdVence15, qtdVence30, resumoPorColaborador } = resumoKpis;
 const totalMedidoPrincipal = totaisMedidosFiltrados[0] || 'Sem medida';
 const totaisMedidosSecundarios = totaisMedidosFiltrados.slice(1, 3);
 const embalagemAtual = inferirTipoEmbalagem(novaApresentacao);
 const embalagemSelecionada = novaEmbalagem || embalagemAtual;
 const filtrosAvancadosAtivos = [filtroColaborador, filtroSetor, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
+
+const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => (
+  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide]}>
+    <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
+      <View style={styles.cardHeaderInfo}>
+        <Text style={styles.prodNome}>{p.nome}</Text>
+
+        <View style={styles.tagsRow}>
+          {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
+          {p.embalagemCalculada ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[p.embalagemCalculada]}</Text></View> : null}
+          <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
+          <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
+          {p.setor ? <View style={styles.tagSetor}><Text style={styles.tagSetorText}>{p.setor}</Text></View> : null}
+          <View style={styles.tagColab}><User size={10} color="#4B5563" /><Text style={styles.tagColabText}>{p.colaborador}</Text></View>
+        </View>
+
+        <View style={styles.eanBox}><Barcode size={14} color="#4B5563" /><Text style={styles.prodEan}>{p.codigo}</Text></View>
+        {(p.lote || p.observacao) ? (
+          <View style={styles.detailList}>
+            {p.lote ? <Text style={styles.detailText}>Lote: {p.lote}</Text> : null}
+            {p.observacao ? <Text style={styles.detailText}>Obs: {p.observacao}</Text> : null}
+          </View>
+        ) : null}
+      </View>
+      <View style={[styles.actions, isCompact && styles.actionsCompact]}>
+        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={styles.actionBtn}><Edit2 size={18} color="#6B7280"/></TouchableOpacity>
+        <TouchableOpacity onPress={() => removerProduto(p.id)} style={styles.actionBtn}><Trash2 size={18} color="#EF4444"/></TouchableOpacity>
+      </View>
+    </View>
+
+    <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
+      <View style={styles.infoBox}><Text style={styles.infoLabel}>QTD</Text><Text style={styles.infoValue}>{p.qtd}</Text></View>
+      <View style={styles.infoBox}><Text style={styles.infoLabel}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={styles.infoValue}>{p.totalMedidoCalculado || p.codigo}</Text></View>
+    </View>
+
+    <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }] }>
+      <View style={styles.statusRow}>
+        <Text style={[styles.statusLabelTitle, { color: p.statusValidade.cor }]}>VENCIMENTO</Text>
+        <Text style={[styles.statusDateValue, { color: p.statusValidade.cor }]}>{formataDataBR(p.validade)}</Text>
+      </View>
+      <View style={styles.statusBigTag}>
+        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} color={p.statusValidade.cor} style={{marginRight: 4}}/>}
+        <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor }]}>{p.statusValidade.label}</Text>
+      </View>
+    </View>
+  </View>
+), [iniciarEdicao, isCompact, isTablet, removerProduto]);
+
+const renderListaHeader = (
+  <>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.kpiScroll}>
+      <View style={[styles.kpiCard, { backgroundColor: '#565DF0', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
+        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
+        <Text style={styles.kpiLabel}>TOTAL AUDITADO (QTD)</Text>
+        <Text style={styles.kpiValue}>{totalQtdAuditada}</Text>
+      </View>
+      <View style={[styles.kpiCard, { backgroundColor: '#0F766E', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
+        <View style={styles.kpiIconBox}><Activity color="#fff" size={24} /></View>
+        <Text style={styles.kpiLabel}>TOTAL MEDIDO (FILTRO)</Text>
+        <Text style={styles.kpiValueCompact}>{totalMedidoPrincipal}</Text>
+        {totaisMedidosSecundarios.map((total) => (
+          <Text key={total} style={styles.kpiSubvalue}>{total}</Text>
+        ))}
+        <Text style={styles.kpiHint}>{produtosFiltrados.length} itens visíveis</Text>
+      </View>
+      <View style={[styles.kpiCard, { backgroundColor: '#F87315', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
+        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
+        <Text style={styles.kpiLabel}>ITENS EM MARKDOWN</Text>
+        <Text style={styles.kpiValue}>{qtdMarkdown}</Text>
+      </View>
+      <TouchableOpacity style={[styles.kpiCard, { backgroundColor: '#ED3D3D', marginRight: 32, width: larguraKpi }, isCompact && styles.kpiCardCompact]} onPress={() => setShowResumoTurno(true)}>
+        <View style={styles.kpiIconBox}><AlertTriangle color="#fff" size={24} /></View>
+        <Text style={styles.kpiLabel}>RISCO IMEDIATO (QTD)</Text>
+        <Text style={styles.kpiValue}>{qtdRiscoImediato}</Text>
+        <Text style={styles.kpiHint}>Ver pendências</Text>
+      </TouchableOpacity>
+    </ScrollView>
+
+    <View style={styles.toolbar}>
+      <Text style={styles.sectionTitle}>Base de Dados (SQLite) ({produtosFiltrados.length})</Text>
+      <View style={[styles.actionRow, isCompact && styles.actionRowCompact]}>
+         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#34D399', backgroundColor: '#ECFDF5' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={exportarParaExcel}>
+           <Download size={16} color="#059669" />
+           <Text style={[styles.btnOutlineText, { color: '#059669' }]}>Salvar Interno</Text>
+         </TouchableOpacity>
+         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={baixarModeloPlanilha}>
+           <Download size={16} color="#B45309" />
+           <Text style={[styles.btnOutlineText, { color: '#B45309' }]}>Baixar Modelo</Text>
+         </TouchableOpacity>
+         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={importarDeExcel}>
+           <Upload size={16} color="#2563EB" />
+           <Text style={[styles.btnOutlineText, { color: '#2563EB' }]}>Importar Produtos</Text>
+         </TouchableOpacity>
+         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={() => setShowFiltrosAvancados(true)}>
+           <Search size={16} color="#4338CA" />
+           <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
+         </TouchableOpacity>
+      </View>
+      <View style={styles.searchBox}>
+        <Search size={18} color="#9CA3AF" style={{marginLeft: 12}} />
+        <TextInput style={styles.searchInput} placeholder="Procurar produto (Nome ou EAN)..." value={termoBusca} onChangeText={setTermoBusca} />
+      </View>
+      <View style={styles.filterRow}>
+        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
+          <Text style={[styles.filterChipText, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
+          <Text style={[styles.filterChipText, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
+          <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </>
+);
 
 useEffect(() => {
 if (Platform.OS === 'web') return;
@@ -1532,6 +2025,52 @@ const avaliarResumoDeRisco = async () => {
 
 void avaliarResumoDeRisco();
 }, [enviarNotificacaoLocal, notificacoesHabilitadas, qtdRiscoImediato, qtdVence7, qtdVence15]);
+
+useEffect(() => {
+if (!showSidebarTemporaria) return;
+
+deslocamentoSidebar.setValue(28);
+opacidadePainelModal.setValue(0);
+
+Animated.parallel([
+  Animated.timing(deslocamentoSidebar, {
+    toValue: 0,
+    duration: 300,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadePainelModal, {
+    toValue: 1,
+    duration: 260,
+    easing: Easing.out(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start();
+}, [deslocamentoSidebar, opacidadePainelModal, showSidebarTemporaria]);
+
+const algumBottomSheetAberto = showResumoTurno || showHistorico || showImportPreview;
+
+useEffect(() => {
+if (!algumBottomSheetAberto) return;
+
+deslocamentoBottomSheet.setValue(36);
+opacidadePainelModal.setValue(0);
+
+Animated.parallel([
+  Animated.timing(deslocamentoBottomSheet, {
+    toValue: 0,
+    duration: 320,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadePainelModal, {
+    toValue: 1,
+    duration: 260,
+    easing: Easing.out(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start();
+}, [algumBottomSheetAberto, deslocamentoBottomSheet, opacidadePainelModal]);
 
 // ==========================================
 // RENDER UI NATIVO
@@ -1562,152 +2101,47 @@ return (
   
   {/* NOTIFICAÇÃO COM FADE */}
   {showNotificacao && (
-    <Animated.View style={[styles.notificacao, { opacity: opacidadeNotificacao }]}>
+    <Animated.View style={[styles.notificacao, { opacity: opacidadeNotificacao, transform: [{ translateY: deslocamentoNotificacao }] }]}> 
       <Bell size={16} color="#fff" />
       <Text style={styles.notificacaoText}>{mensagemNotificacao}</Text>
     </Animated.View>
   )}
 
   {/* HEADER */}
-  <View style={styles.header}>
-    <View style={styles.headerLeft}>
-      <Warehouse color="#C7D2FE" size={32} />
+  <View style={[styles.header, isCompact && styles.headerCompact, isTablet && styles.headerWide]}>
+    <View style={[styles.headerLeft, isCompact && styles.headerLeftCompact]}>
+      <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowSidebarTemporaria(true)}>
+        <Warehouse color="#C7D2FE" size={isCompact ? 28 : 32} />
+      </TouchableOpacity>
       <View style={styles.headerTextWrap}>
-        <Text style={styles.headerTitle}>AUDITORIA DE VALIDADE</Text>
-        <View style={styles.badgesWrap}>
+        <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>AUDITORIA DE VALIDADE</Text>
+        <View style={[styles.badgesWrap, isCompact && styles.badgesWrapCompact]}>
           <View style={styles.badgeTop}><Text style={styles.badgeTopText}>Lj: {loja}</Text></View>
           <View style={styles.badgeTop}><Text style={styles.badgeTopText}>Reg: {regional}</Text></View>
-          <TouchableOpacity style={styles.btnIconEdit} onPress={() => setShowSidebarTemporaria(true)}><Warehouse size={12} color="#C7D2FE"/></TouchableOpacity>
           <TouchableOpacity style={styles.btnIconEdit} onPress={abrirConfiguracoes}><Edit2 size={12} color="#C7D2FE"/></TouchableOpacity>
         </View>
       </View>
     </View>
-    <TouchableOpacity style={styles.colabBox} onPress={abrirConfiguracoes}>
+    <TouchableOpacity style={[styles.colabBox, isCompact && styles.colabBoxCompact, isTablet && styles.colabBoxWide]} onPress={abrirConfiguracoes}>
       <Text style={styles.colabLabel}>COLABORADOR:</Text>
       <Text style={styles.colabName}>{colaborador || 'Sem Nome'}</Text>
     </TouchableOpacity>
   </View>
 
-  <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-    
-    {/* KPI CARDS */}
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.kpiScroll}>
-      <View style={[styles.kpiCard, { backgroundColor: '#565DF0' }]}>
-        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
-        <Text style={styles.kpiLabel}>TOTAL AUDITADO (QTD)</Text>
-        <Text style={styles.kpiValue}>{totalQtdAuditada}</Text>
-      </View>
-      <View style={[styles.kpiCard, { backgroundColor: '#0F766E' }]}>
-        <View style={styles.kpiIconBox}><Activity color="#fff" size={24} /></View>
-        <Text style={styles.kpiLabel}>TOTAL MEDIDO (FILTRO)</Text>
-        <Text style={styles.kpiValueCompact}>{totalMedidoPrincipal}</Text>
-        {totaisMedidosSecundarios.map((total) => (
-          <Text key={total} style={styles.kpiSubvalue}>{total}</Text>
-        ))}
-        <Text style={styles.kpiHint}>{produtosFiltrados.length} itens visíveis</Text>
-      </View>
-      <View style={[styles.kpiCard, { backgroundColor: '#F87315' }]}>
-        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
-        <Text style={styles.kpiLabel}>ITENS EM MARKDOWN</Text>
-        <Text style={styles.kpiValue}>{qtdMarkdown}</Text>
-      </View>
-      <TouchableOpacity style={[styles.kpiCard, { backgroundColor: '#ED3D3D', marginRight: 32 }]} onPress={() => setShowResumoTurno(true)}>
-        <View style={styles.kpiIconBox}><AlertTriangle color="#fff" size={24} /></View>
-        <Text style={styles.kpiLabel}>RISCO IMEDIATO (QTD)</Text>
-        <Text style={styles.kpiValue}>{qtdRiscoImediato}</Text>
-        <Text style={styles.kpiHint}>Ver pendências</Text>
-      </TouchableOpacity>
-    </ScrollView>
-
-    {/* TOOLBAR: EXPORT / IMPORT / SEARCH */}
-    <View style={styles.toolbar}>
-      <Text style={styles.sectionTitle}>Base de Dados (SQLite) ({produtosFiltrados.length})</Text>
-      <View style={styles.actionRow}>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#34D399', backgroundColor: '#ECFDF5' }]} onPress={exportarParaExcel}>
-           <Download size={16} color="#059669" />
-           <Text style={[styles.btnOutlineText, { color: '#059669' }]}>Salvar Interno</Text>
-         </TouchableOpacity>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' }]} onPress={importarDeExcel}>
-           <Upload size={16} color="#2563EB" />
-           <Text style={[styles.btnOutlineText, { color: '#2563EB' }]}>Importar Produtos</Text>
-         </TouchableOpacity>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF' }]} onPress={() => setShowFiltrosAvancados(true)}>
-           <Search size={16} color="#4338CA" />
-           <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
-         </TouchableOpacity>
-      </View>
-      <View style={styles.searchBox}>
-        <Search size={18} color="#9CA3AF" style={{marginLeft: 12}} />
-        <TextInput style={styles.searchInput} placeholder="Procurar produto (Nome ou EAN)..." value={termoBusca} onChangeText={setTermoBusca} />
-      </View>
-      <View style={styles.filterRow}>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-
-    {/* LISTA DE PRODUTOS */}
-    {produtosFiltrados.map(p => {
-      const status = obterStatusDesconto(p.validade);
-      const totalMedido = formatarTotalMedido(p);
-      const embalagemProduto = inferirTipoEmbalagem(p.apresentacao);
-      return (
-        <View key={p.id} style={styles.cardProduto}>
-          <View style={styles.cardTop}>
-            <View style={styles.cardHeaderInfo}>
-              <Text style={styles.prodNome}>{p.nome}</Text>
-              
-              <View style={styles.tagsRow}>
-                {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
-                {(p.embalagem || embalagemProduto) ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[(p.embalagem || embalagemProduto) as TipoEmbalagem]}</Text></View> : null}
-                <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
-                <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
-                {p.setor ? <View style={styles.tagSetor}><Text style={styles.tagSetorText}>{p.setor}</Text></View> : null}
-                <View style={styles.tagColab}><User size={10} color="#4B5563" /><Text style={styles.tagColabText}>{p.colaborador}</Text></View>
-              </View>
-              
-              <View style={styles.eanBox}><Barcode size={14} color="#4B5563" /><Text style={styles.prodEan}>{p.codigo}</Text></View>
-              {(p.lote || p.observacao) ? (
-                <View style={styles.detailList}>
-                  {p.lote ? <Text style={styles.detailText}>Lote: {p.lote}</Text> : null}
-                  {p.observacao ? <Text style={styles.detailText}>Obs: {p.observacao}</Text> : null}
-                </View>
-              ) : null}
-            </View>
-            <View style={styles.actions}>
-              <TouchableOpacity onPress={() => iniciarEdicao(p)} style={styles.actionBtn}><Edit2 size={18} color="#6B7280"/></TouchableOpacity>
-              <TouchableOpacity onPress={() => removerProduto(p.id)} style={styles.actionBtn}><Trash2 size={18} color="#EF4444"/></TouchableOpacity>
-            </View>
-          </View>
-          
-          <View style={styles.cardBottom}>
-            <View style={styles.infoBox}><Text style={styles.infoLabel}>QTD</Text><Text style={styles.infoValue}>{p.qtd}</Text></View>
-            <View style={styles.infoBox}><Text style={styles.infoLabel}>{totalMedido ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={styles.infoValue}>{totalMedido || p.codigo}</Text></View>
-          </View>
-          
-          {/* Status Box */}
-          <View style={[styles.statusBoxFull, { backgroundColor: status.bg, borderColor: status.border }]}>
-              <View style={styles.statusRow}>
-                <Text style={[styles.statusLabelTitle, { color: status.cor }]}>VENCIMENTO</Text>
-                <Text style={[styles.statusDateValue, { color: status.cor }]}>{formataDataBR(p.validade)}</Text>
-              </View>
-              <View style={styles.statusBigTag}>
-                {(status.tipo === 'retirar' || status.tipo === 'vencido') && <AlertTriangle size={14} color={status.cor} style={{marginRight: 4}}/>}
-                <Text style={[styles.statusBigTagText, { color: status.cor }]}>{status.label}</Text>
-              </View>
-          </View>
-        </View>
-      )
-    })}
-    <View style={{height: 88}} />
-  </ScrollView>
+  <FlatList
+    style={styles.content}
+    contentContainerStyle={[styles.contentContainer, isTablet && styles.contentContainerWide]}
+    keyboardShouldPersistTaps="handled"
+    data={produtosFiltrados}
+    renderItem={renderProdutoItem}
+    keyExtractor={(item) => item.id}
+    ListHeaderComponent={renderListaHeader}
+    ListFooterComponent={<View style={{height: 88}} />}
+    removeClippedSubviews={Platform.OS === 'android'}
+    initialNumToRender={10}
+    maxToRenderPerBatch={12}
+    windowSize={7}
+  />
 
   {/* FAB - Botão Flutuante */}
   <TouchableOpacity style={styles.fab} onPress={() => setShowForm(true)}>
@@ -1715,7 +2149,7 @@ return (
   </TouchableOpacity>
 
   {/* MODAL: FORMULÁRIO DE REGISTO */}
-  <Modal visible={showForm} animationType="slide" presentationStyle="formSheet">
+  <Modal visible={showForm} animationType="fade" presentationStyle="formSheet">
     <SafeAreaView style={styles.modalContainer}>
       <View style={styles.modalHeader}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
@@ -1840,6 +2274,19 @@ return (
           </View>
         </View>
 
+        <Text style={styles.label}>EXCLUSÃO AUTOMÁTICA</Text>
+        <TouchableOpacity style={styles.configOptionCard} activeOpacity={0.85} onPress={() => setTempAutoExcluirVencidos((estadoAtual) => !estadoAtual)}>
+          <View style={styles.configOptionTextWrap}>
+            <Text style={styles.configOptionTitle}>Excluir na data limite</Text>
+            <Text style={styles.configOptionDescription}>
+              Quando ativado, produtos com validade hoje ou anterior são removidos automaticamente ao abrir o app ou atualizar a lista.
+            </Text>
+          </View>
+          <View style={[styles.configToggle, tempAutoExcluirVencidos && styles.configToggleActive]}>
+            <View style={[styles.configToggleThumb, tempAutoExcluirVencidos && styles.configToggleThumbActive]} />
+          </View>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.btnDialogAction} onPress={salvarConfiguracoes}>
           <Text style={styles.btnDialogActionText}>Guardar Alterações</Text>
         </TouchableOpacity>
@@ -1854,7 +2301,7 @@ return (
   <Modal visible={showSidebarTemporaria} transparent={true} animationType="fade">
     <View style={styles.sidebarOverlay}>
       <TouchableOpacity style={styles.sidebarBackdrop} activeOpacity={1} onPress={() => setShowSidebarTemporaria(false)} />
-      <View style={styles.sidebarPanel}>
+      <Animated.View style={[styles.sidebarPanel, { opacity: opacidadePainelModal, transform: [{ translateX: deslocamentoSidebar }] }]}>
         <View style={styles.sidebarHeader}>
           <View>
             <Text style={styles.sidebarTitle}>Sidebar Temporaria</Text>
@@ -1888,14 +2335,14 @@ return (
             <Text style={styles.sidebarActionSubtitle}>Últimas alterações registradas</Text>
           </View>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
   {/* MODAL: RESUMO TURNO */}
-  <Modal visible={showResumoTurno} transparent={true} animationType="slide">
+  <Modal visible={showResumoTurno} transparent={true} animationType="fade">
     <View style={styles.overlayBottomModal}>
-      <View style={styles.bottomSheet}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
            <View style={{flexDirection:'row', alignItems:'center', gap: 8}}>
              <View style={{backgroundColor:'#EEF0FF', padding:8, borderRadius:12}}><Bell color="#565DF0"/></View>
@@ -1939,7 +2386,7 @@ return (
             <Text style={styles.summaryMeta}>Qtd {item.qtd} | Risco {item.risco} | Markdown {item.markdown}</Text>
           </View>
         ))}
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
@@ -2010,24 +2457,160 @@ return (
     </View>
   </Modal>
 
-  <Modal visible={showHistorico} transparent={true} animationType="slide">
+  <Modal visible={showHistorico} transparent={true} animationType="fade">
     <View style={styles.overlayBottomModal}>
-      <View style={styles.bottomSheet}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
           <Text style={styles.dialogTitle}>Histórico</Text>
           <TouchableOpacity onPress={() => setShowHistorico(false)}><X color="#9CA3AF"/></TouchableOpacity>
         </View>
+        <Text style={styles.label}>PERÍODO</Text>
+        <View style={styles.historyDateRangeRow}>
+          <View style={styles.historyDateRangeField}>
+            <Text style={styles.historyDateFieldLabel}>Início</Text>
+            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact]} onPress={() => abrirDatePickerHistorico('inicio')}>
+              <Text style={[styles.dateFieldText, !filtroHistoricoDataInicio && styles.dateFieldPlaceholder]}>
+                {filtroHistoricoDataInicio ? formataDataBR(filtroHistoricoDataInicio) : 'Data inicial'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.historyDateRangeField}>
+            <Text style={styles.historyDateFieldLabel}>Fim</Text>
+            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact]} onPress={() => abrirDatePickerHistorico('fim')}>
+              <Text style={[styles.dateFieldText, !filtroHistoricoDataFim && styles.dateFieldPlaceholder]}>
+                {filtroHistoricoDataFim ? formataDataBR(filtroHistoricoDataFim) : 'Data final'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        {filtroHistoricoDataInicio || filtroHistoricoDataFim ? (
+          <TouchableOpacity style={styles.historyDateClearBtn} onPress={() => {
+            setFiltroHistoricoDataInicio('');
+            setFiltroHistoricoDataFim('');
+          }}>
+            <Text style={styles.historyDateClearText}>Limpar período</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <Text style={styles.label}>TIPO DE PRODUTO</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
+          <View style={styles.quickChipRow}>
+            <TouchableOpacity style={[styles.quickChip, filtroHistoricoTipo === 'todos' && styles.quickChipActive]} onPress={() => setFiltroHistoricoTipo('todos')}>
+              <Text style={[styles.quickChipText, filtroHistoricoTipo === 'todos' && styles.quickChipTextActive]}>Todos</Text>
+            </TouchableOpacity>
+            {tiposHistoricoDisponiveis.map((tipo) => (
+              <TouchableOpacity key={tipo} style={[styles.quickChip, filtroHistoricoTipo === tipo && styles.quickChipActive]} onPress={() => setFiltroHistoricoTipo(tipo)}>
+                <Text style={[styles.quickChipText, filtroHistoricoTipo === tipo && styles.quickChipTextActive]}>{tipo}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
         <ScrollView style={styles.historyList}>
-          {historico.map((item) => (
+          {historicoFiltrado.map((item) => (
             <View key={item.id} style={styles.historyCard}>
               <Text style={styles.historyTitle}>{item.acao.toUpperCase()} • {item.nome}</Text>
               <Text style={styles.historyText}>{item.codigo}</Text>
+              {item.tipo_produto ? <Text style={styles.historyText}>Tipo: {item.tipo_produto}</Text> : null}
               <Text style={styles.historyText}>{item.detalhes}</Text>
               <Text style={styles.historyMeta}>{item.colaborador} • {formatarDataHora(item.data_evento)}</Text>
             </View>
           ))}
+          {historicoFiltrado.length === 0 ? <Text style={styles.hintText}>Nenhum registro encontrado para os filtros selecionados.</Text> : null}
         </ScrollView>
-      </View>
+      </Animated.View>
+    </View>
+  </Modal>
+
+  <Modal visible={showImportPreview} transparent={true} animationType="fade">
+    <View style={styles.overlayBottomModal}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
+        <View style={styles.dialogHeader}>
+          <View style={styles.previewHeaderTextWrap}>
+            <Text style={styles.dialogTitle}>Previa da Importacao</Text>
+            <Text style={styles.previewFileName}>{nomeArquivoImportacao}</Text>
+          </View>
+          <TouchableOpacity onPress={voltarDaSelecaoImportacao}><X color="#9CA3AF"/></TouchableOpacity>
+        </View>
+
+        <View style={[styles.previewStatsRow, isCompact && styles.previewStatsRowCompact]}>
+          <View style={[styles.previewStatCard, isCompact && styles.previewStatCardCompact, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}> 
+            <Text style={[styles.previewStatValue, { color: '#3730A3' }]}>{resumoPreviewImportacao.total}</Text>
+            <Text style={[styles.previewStatLabel, { color: '#4338CA' }]}>TOTAL</Text>
+          </View>
+          <View style={[styles.previewStatCard, isCompact && styles.previewStatCardCompact, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}> 
+            <Text style={[styles.previewStatValue, { color: '#15803D' }]}>{resumoPreviewImportacao.validos}</Text>
+            <Text style={[styles.previewStatLabel, { color: '#166534' }]}>VALIDOS</Text>
+          </View>
+          <View style={[styles.previewStatCard, isCompact && styles.previewStatCardCompact, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}> 
+            <Text style={[styles.previewStatValue, { color: '#DC2626' }]}>{resumoPreviewImportacao.vencidos}</Text>
+            <Text style={[styles.previewStatLabel, { color: '#B91C1C' }]}>VENCIDOS</Text>
+          </View>
+        </View>
+
+        <TextInput
+          style={[styles.input, styles.previewSearchInput]}
+          value={filtroImportPreview}
+          onChangeText={setFiltroImportPreview}
+          placeholder="Buscar por nome, EAN, apresentacao ou setor"
+          placeholderTextColor="#94A3B8"
+        />
+
+        <Text style={styles.previewResultText}>
+          {itensImportacaoPreviewFiltrados.length} de {itensImportacaoPreview.length} itens visiveis
+        </Text>
+
+        <ScrollView style={styles.importPreviewList}>
+          {itensImportacaoPreviewFiltrados.slice(0, 30).map((item) => {
+            const diasValidade = obterDiasAteValidade(item.validade);
+            const estaValido = diasValidade >= 0;
+
+            return (
+              <View key={item.id} style={styles.importPreviewCard}>
+                <View style={styles.importPreviewTop}>
+                  <Text style={styles.importPreviewTitle}>{item.nome}</Text>
+                  <View style={[styles.importPreviewBadge, estaValido ? styles.importPreviewBadgeOk : styles.importPreviewBadgeExpired]}>
+                    <Text style={[styles.importPreviewBadgeText, estaValido ? styles.importPreviewBadgeTextOk : styles.importPreviewBadgeTextExpired]}>
+                      {estaValido ? 'Dentro da validade' : 'Vencido'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.importPreviewMeta}>EAN: {item.codigo}</Text>
+                <Text style={styles.importPreviewMeta}>Validade: {formataDataBR(item.validade)}</Text>
+                {item.apresentacao ? <Text style={styles.importPreviewMeta}>Apresentacao: {item.apresentacao}</Text> : null}
+              </View>
+            );
+          })}
+          {itensImportacaoPreviewFiltrados.length === 0 ? (
+            <Text style={styles.hintText}>Nenhum item encontrado para esse filtro.</Text>
+          ) : null}
+          {itensImportacaoPreviewFiltrados.length > 30 ? (
+            <Text style={styles.hintText}>Mostrando os primeiros 30 itens do resultado filtrado.</Text>
+          ) : null}
+        </ScrollView>
+
+        <TouchableOpacity
+          style={[styles.btnDialogAction, isCompact && styles.btnDialogActionCompact, importandoPreview && styles.buttonDisabled]}
+          onPress={() => { void importarProdutosDaPreview(itensImportacaoPreview); }}
+          disabled={importandoPreview}>
+          <Text style={styles.btnDialogActionText}>{importandoPreview ? 'Importando...' : 'Importar Todos'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btnDialogAction, styles.btnDialogSecondary, isCompact && styles.btnDialogActionCompact, importandoPreview && styles.buttonDisabled]}
+          onPress={() => {
+            const validos = itensImportacaoPreview.filter((produto) => obterDiasAteValidade(produto.validade) >= 0);
+            if (validos.length === 0) {
+              Alert.alert('Aviso', 'Nenhum produto dentro da validade foi encontrado para importar.');
+              return;
+            }
+            void importarProdutosDaPreview(validos);
+          }}
+          disabled={importandoPreview}>
+          <Text style={styles.btnDialogSecondaryText}>{importandoPreview ? 'Importando...' : 'Importar So Validos'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.btnDialogDanger, isCompact && styles.btnDialogDangerCompact, importandoPreview && styles.buttonDisabled]} onPress={voltarDaSelecaoImportacao} disabled={importandoPreview}>
+          <Text style={styles.btnDialogDangerText}>Voltar para tela inicial</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   </Modal>
 
@@ -2060,6 +2643,35 @@ return (
     />
   ) : null}
 
+  <Modal visible={showHistoricoDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
+    <View style={styles.overlayModal}>
+      <View style={styles.datePickerDialog}>
+        <View style={styles.dialogHeader}>
+          <Text style={styles.dialogTitle}>{alvoDatePickerHistorico === 'inicio' ? 'Data inicial' : 'Data final'}</Text>
+          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X color="#9CA3AF"/></TouchableOpacity>
+        </View>
+        <DateTimePicker
+          value={dataHistoricoSelecionada}
+          mode="date"
+          display="spinner"
+          onChange={aoMudarDatePickerHistorico}
+        />
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePickerHistorico(dataHistoricoSelecionada)}>
+          <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+
+  {showHistoricoDatePicker && Platform.OS === 'android' ? (
+    <DateTimePicker
+      value={dataHistoricoSelecionada}
+      mode="date"
+      display="default"
+      onChange={aoMudarDatePickerHistorico}
+    />
+  ) : null}
+
 </SafeAreaView>
 
 
@@ -2077,22 +2689,33 @@ notificacao: { backgroundColor: '#565DF0', padding: 16, marginHorizontal: 16, ma
 notificacaoText: { color: '#fff', fontSize: 13, fontWeight: 'bold', flex: 1 },
 
 header: { backgroundColor: '#2C2E7D', padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 10, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 },
+headerCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 14 },
+headerWide: { paddingHorizontal: 28 },
 headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+headerLeftCompact: { alignItems: 'flex-start' },
+headerIconButton: { backgroundColor: 'rgba(255,255,255,0.08)', padding: 8, borderRadius: 18 },
 headerTextWrap: { justifyContent: 'center' },
 headerTitle: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
-badgesWrap: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 },
+headerTitleCompact: { fontSize: 15 },
+badgesWrap: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6, flexWrap: 'wrap' },
+badgesWrapCompact: { marginTop: 8 },
 badgeTop: { backgroundColor: '#1E205B', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 badgeTopText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 btnIconEdit: { backgroundColor: 'rgba(255,255,255,0.1)', padding: 4, borderRadius: 12 },
 
 colabBox: { backgroundColor: '#1E205B', padding: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+colabBoxCompact: { width: '100%' },
+colabBoxWide: { minWidth: 220 },
 colabLabel: { color: '#A5B4FC', fontSize: 9, fontWeight: 'bold', letterSpacing: 1 },
 colabName: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
 
-content: { padding: 16 },
+content: { flex: 1 },
+contentContainer: { padding: 16, paddingBottom: 110 },
+contentContainerWide: { width: '100%', maxWidth: 1080, alignSelf: 'center' },
 
 kpiScroll: { marginBottom: 20, overflow: 'visible' },
 kpiCard: { padding: 20, borderRadius: 20, width: 220, marginRight: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
+kpiCardCompact: { padding: 16, marginRight: 12 },
 kpiIconBox: { backgroundColor: 'rgba(255,255,255,0.2)', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
 kpiLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
 kpiValue: { color: '#fff', fontSize: 32, fontWeight: '900', marginTop: 4 },
@@ -2103,7 +2726,10 @@ kpiHint: { color: 'rgba(255,255,255,0.6)', fontSize: 10, marginTop: 8 },
 toolbar: { marginBottom: 16 },
 sectionTitle: { fontSize: 20, fontWeight: '900', color: '#1A1C5A', marginBottom: 12 },
 actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
+actionRowCompact: { gap: 8 },
 btnOutline: { minWidth: '30%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 12, borderWidth: 1 },
+btnOutlineCompact: { minWidth: '48%' },
+btnOutlineWide: { minWidth: '22%' },
 btnOutlineText: { fontWeight: 'bold', marginLeft: 8, fontSize: 14 },
 searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
 searchInput: { flex: 1, padding: 12, fontSize: 14, color: '#1F2937' },
@@ -2122,7 +2748,9 @@ quickChipText: { color: '#4B5563', fontSize: 12, fontWeight: '800' },
 quickChipTextActive: { color: '#1D4ED8' },
 
 cardProduto: { backgroundColor: '#fff', borderRadius: 24, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+cardProdutoWide: { padding: 20 },
 cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+cardTopCompact: { flexDirection: 'column', gap: 12 },
 cardHeaderInfo: { flex: 1 },
 prodNome: { fontSize: 18, fontWeight: '900', color: '#111827', marginBottom: 6 },
 tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
@@ -2144,9 +2772,11 @@ detailList: { marginTop: 8, gap: 2 },
 detailText: { color: '#6B7280', fontSize: 12, fontWeight: '600' },
 
 actions: { flexDirection: 'column', gap: 8, marginLeft: 12 },
+actionsCompact: { flexDirection: 'row', marginLeft: 0 },
 actionBtn: { padding: 10, backgroundColor: '#F9FAFB', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
 
 cardBottom: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+cardBottomCompact: { flexDirection: 'column' },
 infoBox: { flex: 1, backgroundColor: '#F8FAFC', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9' },
 infoLabel: { fontSize: 10, color: '#9CA3AF', fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
 infoValue: { fontSize: 18, color: '#111827', fontWeight: '900' },
@@ -2179,8 +2809,14 @@ measureChipTextActive: { color: '#1D4ED8' },
 measureHint: { color: '#475569', fontSize: 12, marginTop: 10, lineHeight: 18, fontWeight: '600' },
 inputMultiline: { minHeight: 92, textAlignVertical: 'top' },
 dateField: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 16, padding: 16, minHeight: 58, justifyContent: 'center' },
+dateFieldCompact: { minHeight: 52, padding: 14 },
 dateFieldText: { fontSize: 16, fontWeight: 'bold', color: '#1F2937' },
 dateFieldPlaceholder: { color: '#9CA3AF' },
+historyDateRangeRow: { flexDirection: 'column', gap: 10 },
+historyDateRangeField: { width: '100%' },
+historyDateFieldLabel: { color: '#64748B', fontSize: 12, fontWeight: '800', marginBottom: 8 },
+historyDateClearBtn: { alignSelf: 'flex-start', marginTop: 10, backgroundColor: '#F8FAFC', borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 8 },
+historyDateClearText: { color: '#475569', fontSize: 12, fontWeight: '800' },
 row: { flexDirection: 'row', alignItems: 'center' },
 rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 autoSearchHint: { color: '#4338CA', fontSize: 12, marginTop: 10, fontWeight: '700', lineHeight: 18 },
@@ -2194,6 +2830,14 @@ dialogBox: { backgroundColor: '#fff', width: '100%', borderRadius: 24, padding: 
 datePickerDialog: { backgroundColor: '#fff', width: '100%', borderRadius: 24, padding: 24 },
 dialogHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
 dialogTitle: { fontSize: 20, fontWeight: '900', color: '#1A1C5A', textTransform: 'uppercase' },
+configOptionCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, backgroundColor: '#F8FAFC', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', padding: 16, marginTop: 4 },
+configOptionTextWrap: { flex: 1 },
+configOptionTitle: { color: '#0F172A', fontSize: 14, fontWeight: '900', marginBottom: 4 },
+configOptionDescription: { color: '#475569', fontSize: 12, fontWeight: '600', lineHeight: 18 },
+configToggle: { width: 54, height: 32, borderRadius: 999, backgroundColor: '#CBD5E1', padding: 4, justifyContent: 'center' },
+configToggleActive: { backgroundColor: '#60A5FA' },
+configToggleThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF' },
+configToggleThumbActive: { alignSelf: 'flex-end' },
 sidebarOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.35)', flexDirection: 'row', justifyContent: 'flex-end' },
 sidebarBackdrop: { flex: 1 },
 sidebarPanel: { width: '82%', maxWidth: 340, backgroundColor: '#FFFFFF', padding: 20, paddingTop: 56, shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 12 },
@@ -2205,13 +2849,41 @@ sidebarActionTextWrap: { flex: 1 },
 sidebarActionTitle: { fontSize: 14, fontWeight: '900', textTransform: 'uppercase' },
 sidebarActionSubtitle: { color: '#6B7280', fontSize: 12, fontWeight: '600', marginTop: 2 },
 btnDialogAction: { backgroundColor: '#565DF0', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24 },
+btnDialogActionCompact: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 12 },
 btnDialogActionText: { color: '#fff', fontWeight: '900', fontSize: 14, textTransform: 'uppercase' },
+btnDialogSecondary: { backgroundColor: '#EEF2FF', marginTop: 10 },
+btnDialogSecondaryText: { color: '#3730A3', fontWeight: '900', fontSize: 14, textTransform: 'uppercase' },
 btnDialogDanger: { padding: 16, alignItems: 'center', marginTop: 8 },
+btnDialogDangerCompact: { marginTop: 4, paddingVertical: 14 },
 btnDialogDangerText: { color: '#EF4444', fontWeight: 'bold', fontSize: 14 },
+buttonDisabled: { opacity: 0.6 },
 
 overlayBottomModal: { flex: 1, backgroundColor: 'rgba(26, 28, 90, 0.5)', justifyContent: 'flex-end' },
 bottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+bottomSheetCompact: { padding: 18, paddingBottom: 28 },
+bottomSheetWide: { width: '100%', maxWidth: 760, alignSelf: 'center' },
 hintText: { color: '#6B7280', fontSize: 12, fontWeight: 'bold', marginBottom: 16 },
+previewHeaderTextWrap: { flex: 1, paddingRight: 12 },
+previewFileName: { color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 },
+previewStatsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+previewStatsRowCompact: { flexWrap: 'wrap', gap: 8 },
+previewStatCard: { flex: 1, borderWidth: 1, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 10, alignItems: 'center' },
+previewStatCardCompact: { minWidth: '48%' },
+previewStatValue: { fontSize: 24, fontWeight: '900' },
+previewStatLabel: { fontSize: 11, fontWeight: '900', marginTop: 4, letterSpacing: 0.6 },
+previewSearchInput: { marginBottom: 10 },
+previewResultText: { color: '#64748B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
+importPreviewList: { maxHeight: 340 },
+importPreviewCard: { backgroundColor: '#F8FAFC', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginBottom: 10 },
+importPreviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+importPreviewTitle: { flex: 1, color: '#111827', fontSize: 14, fontWeight: '900' },
+importPreviewMeta: { color: '#4B5563', fontSize: 12, fontWeight: '700', marginTop: 2 },
+importPreviewBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
+importPreviewBadgeOk: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+importPreviewBadgeExpired: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+importPreviewBadgeText: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+importPreviewBadgeTextOk: { color: '#166534' },
+importPreviewBadgeTextExpired: { color: '#B91C1C' },
 resumeCard: { flex: 1, padding: 16, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginRight: 8 },
 resumeNum: { fontSize: 32, fontWeight: '900', marginBottom: 4 },
 resumeLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
