@@ -4,11 +4,13 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
+import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
-import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, Upload, User, Warehouse, X } from 'lucide-react-native';
+import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { BarChart } from 'react-native-chart-kit';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as XLSX from 'xlsx';
 import baseInternaEmbutida from '../../assets/data/anvisa-base.json';
@@ -136,7 +138,7 @@ const ROTULOS_STATUS_CONFERENCIA: Record<StatusConferencia, string> = {
 const SETORES_PADRAO = ['Balcao', 'Gondola', 'Geladeira', 'Controlados', 'Estoque'];
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
-const VERSAO_APP = '1.0.1';
+const VERSAO_APP = '1.0.2';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
 const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
@@ -417,6 +419,14 @@ const [tempRegional, setTempRegional] = useState('');
 const [tempColaborador, setTempColaborador] = useState('');
 const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
 const [tempThemePreference, setTempThemePreference] = useState<ThemePreference>('system');
+
+// NOVOS ESTADOS: MODO CONFERÊNCIA, SWIPE, GRÁFICO
+const [showModoConferencia, setShowModoConferencia] = useState(false);
+const [produtosConferidos, setProdutosConferidos] = useState<Set<string>>(new Set());
+const [showGraficoStatus, setShowGraficoStatus] = useState(false);
+const [codigoScanConferencia, setCodigoScanConferencia] = useState('');
+const [exportandoPdf, setExportandoPdf] = useState(false);
+const [produtoSwipeado, setProdutoSwipeado] = useState<string | null>(null);
 
 const ultimoCodigoBuscado = useRef('');
 const cacheEanMemoria = useRef<Record<string, CadastroEan>>({});
@@ -1937,6 +1947,127 @@ const embalagemAtual = inferirTipoEmbalagem(novaApresentacao);
 const embalagemSelecionada = novaEmbalagem || embalagemAtual;
 const filtrosAvancadosAtivos = [filtroColaborador, filtroSetor, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
 
+// ==========================================
+// NOVOS: MODO CONFERÊNCIA, GRÁFICO, PDF
+// ==========================================
+const conferirProdutoRapido = useCallback((codigo: string) => {
+  const produto = produtos.find(p => p.codigo === codigo || p.codigo.includes(codigo));
+  if (!produto) {
+    exibirNotificacao('Produto não encontrado');
+    return;
+  }
+  const novo = new Set(produtosConferidos);
+  if (novo.has(produto.id)) {
+    novo.delete(produto.id);
+  } else {
+    novo.add(produto.id);
+  }
+  setProdutosConferidos(novo);
+  setCodigoScanConferencia('');
+  exibirNotificacao(`${produto.nome} - ${novo.has(produto.id) ? 'Conferido' : 'Desconferido'}`);
+}, [produtosConferidos, produtos, exibirNotificacao]);
+
+const finalizarModoConferencia = useCallback(() => {
+  setShowModoConferencia(false);
+  setCodigoScanConferencia('');
+  setProdutosConferidos(new Set());
+  exibirNotificacao(`${produtosConferidos.size} produtos conferidos`);
+}, [produtosConferidos.size, exibirNotificacao]);
+
+const calcularDadosGrafico = useMemo(() => {
+  const stats = { ok: 0, markdown: 0, retirar: 0, vencido: 0 };
+  for (const p of produtosFiltrados) {
+    stats[p.statusValidade.tipo]++;
+  }
+  return {
+    labels: ['No Prazo', 'Markdown', 'Próximos', 'Vencidos'],
+    datasets: [{ data: [stats.ok, stats.markdown, stats.retirar, stats.vencido] }],
+  };
+}, [produtosFiltrados]);
+
+const exportarResumoPdfComTimestamp = useCallback(async () => {
+  if (exportandoPdf) return;
+  try {
+    setExportandoPdf(true);
+    const agora = new Date();
+    const dataFormatada = agora.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    
+    const html = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body style="font-family: Arial; padding: 20px; color: #333;">
+          <h1 style="text-align: center; color: #2C2E7D;">Resumo do Turno</h1>
+          <p style="text-align: center; font-size: 12px; color: #666;">Data: ${dataFormatada} às ${horaFormatada}</p>
+          <hr style="border: none; border-top: 2px solid #2C2E7D;" />
+          
+          <h2 style="color: #2C2E7D; border-bottom: 2px solid #2C2E7D; padding-bottom: 10px;">Informações da Loja</h2>
+          <p><strong>Loja:</strong> ${loja}</p>
+          <p><strong>Regional:</strong> ${regional}</p>
+          <p><strong>Colaborador:</strong> ${colaborador}</p>
+          
+          <h2 style="color: #2C2E7D; border-bottom: 2px solid #2C2E7D; padding-bottom: 10px; margin-top: 20px;">KPIs do Turno</h2>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f0f0f0; font-weight: bold;">Total Auditado (Qtd)</td>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f9f9f9;">${totalQtdAuditada}</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f0f0f0; font-weight: bold;">Risco Imediato</td>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f9f9f9; color: #d32f2f; font-weight: bold;">${qtdRiscoImediato}</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f0f0f0; font-weight: bold;">Markdown</td>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f9f9f9; color: #f87315; font-weight: bold;">${qtdMarkdown}</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f0f0f0; font-weight: bold;">Produtos (Filtro)</td>
+              <td style="border: 1px solid #ddd; padding: 10px; background: #f9f9f9;">${produtosFiltrados.length}</td>
+            </tr>
+          </table>
+          
+          <h2 style="color: #2C2E7D; border-bottom: 2px solid #2C2E7D; padding-bottom: 10px; margin-top: 20px;">Por Colaborador</h2>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+            <tr style="background: #f0f0f0;">
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: left; font-weight: bold;">Colaborador</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">Auditados</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">Risco</th>
+            </tr>
+            ${resumoPorColaborador.map((item) => `
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 10px;">${item.colaborador}</td>
+                <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">${item.qtd}</td>
+                <td style="border: 1px solid #ddd; padding: 10px; text-align: center; color: #d32f2f;">${item.risco}</td>
+              </tr>
+            `).join('')}
+          </table>
+          
+          <hr style="border: none; border-top: 2px solid #2C2E7D; margin-top: 30px;" />
+          <p style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">Gerado por App de Validade v${VERSAO_APP}</p>
+        </body>
+      </html>
+    `;
+    
+    const { uri } = await Print.printToFileAsync({ html });
+    const fileName = `Resumo_${sanitizarTrechoArquivo(loja)}_${Date.now()}.pdf`;
+    
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `Resumo do Turno - ${dataFormatada}`,
+        UTI: 'com.adobe.pdf',
+      });
+    }
+    
+    exibirNotificacao('PDF gerado com sucesso!');
+  } catch (error) {
+    const mensagem = error instanceof Error ? error.message : 'Erro ao gerar PDF';
+    Alert.alert('Erro', mensagem);
+  } finally {
+    setExportandoPdf(false);
+  }
+}, [exportandoPdf, loja, regional, colaborador, totalQtdAuditada, qtdRiscoImediato, qtdMarkdown, produtosFiltrados.length, resumoPorColaborador, exibirNotificacao]);
+
 const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => (
   <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }]}>
     <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
@@ -1949,10 +2080,10 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
           <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
           <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
           {p.setor ? <View style={[styles.tagSetor, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><Text style={[styles.tagSetorText, { color: theme.chipText }]}>{p.setor}</Text></View> : null}
-          <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} color={theme.muted} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
+          <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
         </View>
 
-        <View style={[styles.eanBox, { backgroundColor: theme.eanBg, borderColor: theme.border }]}><Barcode size={14} color={theme.muted} /><Text style={[styles.prodEan, { color: theme.chipText }]}>{p.codigo}</Text></View>
+        <View style={[styles.eanBox, { backgroundColor: theme.eanBg, borderColor: theme.border }]}><Barcode size={14} /><Text style={[styles.prodEan, { color: theme.chipText }]}>{p.codigo}</Text></View>
         {(p.lote || p.observacao) ? (
           <View style={styles.detailList}>
             {p.lote ? <Text style={[styles.detailText, { color: theme.muted }]}>Lote: {p.lote}</Text> : null}
@@ -1961,8 +2092,8 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
         ) : null}
       </View>
       <View style={[styles.actions, isCompact && styles.actionsCompact]}>
-        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Edit2 size={18} color={theme.muted}/></TouchableOpacity>
-        <TouchableOpacity onPress={() => removerProduto(p.id)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Trash2 size={18} color="#EF4444"/></TouchableOpacity>
+        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Edit2 size={18}/></TouchableOpacity>
+        <TouchableOpacity onPress={() => removerProduto(p.id)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Trash2 size={18}/></TouchableOpacity>
       </View>
     </View>
 
@@ -1977,7 +2108,7 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
         <Text style={[styles.statusDateValue, { color: p.statusValidade.cor }]}>{formataDataBR(p.validade)}</Text>
       </View>
       <View style={styles.statusBigTag}>
-        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} color={p.statusValidade.cor} style={{marginRight: 4}}/>}
+        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} style={{marginRight: 4}}/>}
         <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor }]}>{p.statusValidade.label}</Text>
       </View>
     </View>
@@ -1988,12 +2119,12 @@ const renderListaHeader = (
   <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.kpiScroll}>
       <View style={[styles.kpiCard, { backgroundColor: '#565DF0', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
-        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
+        <View style={styles.kpiIconBox}><Package size={24} /></View>
         <Text style={styles.kpiLabel}>TOTAL AUDITADO (QTD)</Text>
         <Text style={styles.kpiValue}>{totalQtdAuditada}</Text>
       </View>
       <View style={[styles.kpiCard, { backgroundColor: '#0F766E', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
-        <View style={styles.kpiIconBox}><Activity color="#fff" size={24} /></View>
+        <View style={styles.kpiIconBox}><Activity size={24} /></View>
         <Text style={styles.kpiLabel}>TOTAL MEDIDO (FILTRO)</Text>
         <Text style={styles.kpiValueCompact}>{totalMedidoPrincipal}</Text>
         {totaisMedidosSecundarios.map((total) => (
@@ -2002,12 +2133,12 @@ const renderListaHeader = (
         <Text style={styles.kpiHint}>{produtosFiltrados.length} itens visíveis</Text>
       </View>
       <View style={[styles.kpiCard, { backgroundColor: '#F87315', width: larguraKpi }, isCompact && styles.kpiCardCompact]}>
-        <View style={styles.kpiIconBox}><Package color="#fff" size={24} /></View>
+        <View style={styles.kpiIconBox}><Package size={24} /></View>
         <Text style={styles.kpiLabel}>ITENS EM MARKDOWN</Text>
         <Text style={styles.kpiValue}>{qtdMarkdown}</Text>
       </View>
       <TouchableOpacity style={[styles.kpiCard, { backgroundColor: '#ED3D3D', marginRight: 32, width: larguraKpi }, isCompact && styles.kpiCardCompact]} onPress={() => setShowResumoTurno(true)}>
-        <View style={styles.kpiIconBox}><AlertTriangle color="#fff" size={24} /></View>
+        <View style={styles.kpiIconBox}><AlertTriangle size={24} /></View>
         <Text style={styles.kpiLabel}>RISCO IMEDIATO (QTD)</Text>
         <Text style={styles.kpiValue}>{qtdRiscoImediato}</Text>
         <Text style={styles.kpiHint}>Ver pendências</Text>
@@ -2018,12 +2149,12 @@ const renderListaHeader = (
       <Text style={[styles.sectionTitle, { color: theme.title }]}>Operação do Dia ({produtosFiltrados.length})</Text>
       <View style={[styles.actionRow, isCompact && styles.actionRowCompact]}>
          <TouchableOpacity style={[styles.btnOutline, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={() => setShowFiltrosAvancados(true)}>
-           <Search size={16} color="#4338CA" />
+           <Search size={16} />
            <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros Avançados {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
          </TouchableOpacity>
       </View>
       <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Search size={18} color={theme.muted} style={{marginLeft: 12}} />
+        <Search size={18} style={{marginLeft: 12}} />
         <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar por nome ou EAN..." placeholderTextColor={theme.muted} value={termoBusca} onChangeText={setTermoBusca} />
       </View>
       <View style={styles.filterRow}>
@@ -2133,14 +2264,14 @@ Animated.parallel([
 // ==========================================
 // RENDER UI NATIVO
 // ==========================================
-if (isLoading) return <View style={styles.center}><ActivityIndicator size="large" color="#565DF0" /></View>;
+if (isLoading) return <View style={styles.center}><ActivityIndicator size="large" /></View>;
 
 if (isScanning) {
 return (
 <SafeAreaView style={styles.cameraContainer}>
 <View style={styles.cameraHeader}>
 <Text style={styles.cameraTitle}>Aponte para o EAN</Text>
-<TouchableOpacity onPress={() => setIsScanning(false)} style={styles.btnFecharCamera}><X color="#fff" /></TouchableOpacity>
+<TouchableOpacity onPress={() => setIsScanning(false)} style={styles.btnFecharCamera}><X /></TouchableOpacity>
 </View>
 <CameraView
 style={styles.camera}
@@ -2160,7 +2291,7 @@ return (
   {/* NOTIFICAÇÃO COM FADE */}
   {showNotificacao && (
     <Animated.View style={[styles.notificacao, { opacity: opacidadeNotificacao, transform: [{ translateY: deslocamentoNotificacao }] }]}> 
-      <Bell size={16} color="#fff" />
+      <Bell size={16} />
       <Text style={styles.notificacaoText}>{mensagemNotificacao}</Text>
     </Animated.View>
   )}
@@ -2169,7 +2300,7 @@ return (
   <View style={[styles.header, isCompact && styles.headerCompact, isTablet && styles.headerWide, { backgroundColor: theme.headerBg }]}>
     <View style={[styles.headerLeft, isCompact && styles.headerLeftCompact]}>
       <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowMenuLateral(true)}>
-        <Warehouse color="#C7D2FE" size={isCompact ? 28 : 32} />
+        <Warehouse size={isCompact ? 28 : 32} />
       </TouchableOpacity>
       <View style={styles.headerTextWrap}>
         <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>AUDITORIA DE VALIDADE</Text>
@@ -2202,7 +2333,7 @@ return (
 
   {/* FAB - Botão Flutuante */}
   <TouchableOpacity style={styles.fab} onPress={() => setShowForm(true)}>
-    <Plus color="#fff" size={32} />
+    <Plus size={32} />
   </TouchableOpacity>
 
   {/* MODAL: FORMULÁRIO DE REGISTO */}
@@ -2210,10 +2341,10 @@ return (
     <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
       <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}> 
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-          {editandoId ? <Edit color="#F97316" size={28}/> : <Activity color="#1A1C5A" size={28}/>}
+          {editandoId ? <Edit size={28}/> : <Activity size={28}/>}
           <Text style={[styles.modalTitle, {color: editandoId ? '#F97316' : theme.title}]}>{editandoId ? 'Editar Produto' : 'Novo Registo'}</Text>
         </View>
-        <TouchableOpacity onPress={limparFormulario} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X color={theme.muted} size={24} /></TouchableOpacity>
+        <TouchableOpacity onPress={limparFormulario} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={24} /></TouchableOpacity>
       </View>
       
       <ScrollView style={styles.formBody} keyboardShouldPersistTaps="handled">
@@ -2222,7 +2353,7 @@ return (
         <Text style={[styles.label, { color: theme.muted }]}>CÓDIGO DE BARRAS (EAN)</Text>
         <View style={styles.row}>
           <TextInput style={[styles.input, { flex: 1, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novoCodigo} onChangeText={setNovoCodigo} keyboardType="numeric" placeholder="Digite ou bipe..." placeholderTextColor={theme.muted} maxLength={14} />
-          <TouchableOpacity style={styles.btnCamera} onPress={acionarCamera}><Camera color="#fff" size={24}/></TouchableOpacity>
+          <TouchableOpacity style={styles.btnCamera} onPress={acionarCamera}><Camera size={24}/></TouchableOpacity>
         </View>
         <Text style={[styles.autoSearchHint, { color: isDark ? '#93C5FD' : '#4338CA' }]}>Ao bipar ou digitar o EAN, o app consulta a base interna automaticamente antes da busca online.</Text>
 
@@ -2280,7 +2411,7 @@ return (
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.btnSalvar, {backgroundColor: editandoId ? '#F97316' : '#565DF0'}]} onPress={salvarProduto}>
-          <Check color="#fff" style={{marginRight: 8}} size={24}/>
+          <Check style={{marginRight: 8}} size={24}/>
           <Text style={styles.btnSalvarText}>{editandoId ? 'Atualizar DB' : 'Gravar no SQLite'}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -2293,7 +2424,7 @@ return (
       <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
            <Text style={[styles.dialogTitle, { color: theme.title }]}>Definições</Text>
-           <TouchableOpacity onPress={() => setShowConfig(false)}><X color={theme.muted}/></TouchableOpacity>
+           <TouchableOpacity onPress={() => setShowConfig(false)}><X/></TouchableOpacity>
         </View>
         
         <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
@@ -2373,7 +2504,7 @@ return (
             <Text style={[styles.sidebarTitle, { color: theme.text }]}>Menu</Text>
             <Text style={[styles.sidebarSubtitle, { color: theme.muted }]}>Acesso rápido e gestão</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowMenuLateral(false)} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X color={theme.muted} size={20} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowMenuLateral(false)} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={20} /></TouchableOpacity>
         </View>
 
         <ScrollView style={styles.sidebarScroll} contentContainerStyle={styles.sidebarScrollContent} showsVerticalScrollIndicator={false}>
@@ -2386,10 +2517,50 @@ return (
             setShowMenuLateral(false);
             setShowResumoTurno(true);
           }}>
-          <Activity size={18} color="#2563EB" />
+          <Activity size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Resumo do Turno</Text>
             <Text style={styles.sidebarActionSubtitle}>Pendências e alertas de vencimento</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#FEC84B', backgroundColor: '#FEFCE8', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            setShowModoConferencia(true);
+          }}>
+          <Check size={18} />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#A16207' }]}>Conferência Rápida</Text>
+            <Text style={styles.sidebarActionSubtitle}>Scan e check simplificado</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#A78BFA', backgroundColor: '#F3E8FF', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            setShowGraficoStatus(true);
+          }}>
+          <TrendingUp size={18} />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#6D28D9' }]}>Gráfico de Status</Text>
+            <Text style={styles.sidebarActionSubtitle}>Visualizar distribuição de vencimentos</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#F87171', backgroundColor: '#FEE2E2', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            exportarResumoPdfComTimestamp();
+          }}
+          disabled={exportandoPdf}>
+          <Download size={18} />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#991B1B' }]}>Exportar PDF</Text>
+            <Text style={styles.sidebarActionSubtitle}>{exportandoPdf ? 'Gerando...' : 'Resumo com timestamp'}</Text>
           </View>
         </TouchableOpacity>
 
@@ -2399,7 +2570,7 @@ return (
             setShowMenuLateral(false);
             setShowHistorico(true);
           }}>
-          <Bell size={18} color="#2563EB" />
+          <Bell size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Histórico</Text>
             <Text style={styles.sidebarActionSubtitle}>Últimas alterações registradas</Text>
@@ -2414,7 +2585,7 @@ return (
             setShowMenuLateral(false);
             exportarParaExcel();
           }}>
-          <Download size={18} color="#059669" />
+          <Download size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#047857' }]}>Salvar Interno</Text>
             <Text style={styles.sidebarActionSubtitle}>Exporta relatório XLSX para compartilhar</Text>
@@ -2427,7 +2598,7 @@ return (
             setShowMenuLateral(false);
             baixarModeloPlanilha();
           }}>
-          <Download size={18} color="#B45309" />
+          <Download size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#92400E' }]}>Baixar Modelo</Text>
             <Text style={styles.sidebarActionSubtitle}>Gera planilha modelo para importação</Text>
@@ -2440,7 +2611,7 @@ return (
             setShowMenuLateral(false);
             importarDeExcel();
           }}>
-          <Upload size={18} color="#2563EB" />
+          <Upload size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Importar Produtos</Text>
             <Text style={styles.sidebarActionSubtitle}>Importa CSV/XLSX para o banco local</Text>
@@ -2453,7 +2624,7 @@ return (
             setShowMenuLateral(false);
             importarBaseInternaEan();
           }}>
-          <Upload size={18} color="#9333EA" />
+          <Upload size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#6B21A8' }]}>Importar Base EAN</Text>
             <Text style={styles.sidebarActionSubtitle}>Atualiza a base interna local manualmente</Text>
@@ -2466,7 +2637,7 @@ return (
             setShowMenuLateral(false);
             abrirConfiguracoes();
           }}>
-          <Edit2 size={18} color="#4338CA" />
+          <Edit2 size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#3730A3' }]}>Configurações</Text>
             <Text style={styles.sidebarActionSubtitle}>Loja, colaborador e preferências</Text>
@@ -2490,10 +2661,10 @@ return (
       <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
            <View style={{flexDirection:'row', alignItems:'center', gap: 8}}>
-             <View style={{backgroundColor:'#EEF0FF', padding:8, borderRadius:12}}><Bell color="#565DF0"/></View>
+             <View style={{backgroundColor:'#EEF0FF', padding:8, borderRadius:12}}><Bell/></View>
              <Text style={[styles.dialogTitle, { color: theme.title }]}>Resumo do Turno</Text>
            </View>
-           <TouchableOpacity onPress={() => setShowResumoTurno(false)}><X color={theme.muted}/></TouchableOpacity>
+           <TouchableOpacity onPress={() => setShowResumoTurno(false)}><X/></TouchableOpacity>
         </View>
         <Text style={[styles.hintText, { color: theme.muted }]}>PENDÊNCIAS NA ÁREA DE VENDAS:</Text>
         
@@ -2540,7 +2711,7 @@ return (
       <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Filtros Avançados</Text>
-          <TouchableOpacity onPress={() => setShowFiltrosAvancados(false)}><X color={theme.muted}/></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowFiltrosAvancados(false)}><X/></TouchableOpacity>
         </View>
 
         <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
@@ -2607,7 +2778,7 @@ return (
       <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Histórico</Text>
-          <TouchableOpacity onPress={() => setShowHistorico(false)}><X color={theme.muted}/></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowHistorico(false)}><X/></TouchableOpacity>
         </View>
         <Text style={[styles.label, { color: theme.muted }]}>PERÍODO</Text>
         <View style={styles.historyDateRangeRow}>
@@ -2674,7 +2845,7 @@ return (
             <Text style={[styles.dialogTitle, { color: theme.title }]}>Previa da Importacao</Text>
             <Text style={[styles.previewFileName, { color: theme.muted }]}>{nomeArquivoImportacao}</Text>
           </View>
-          <TouchableOpacity onPress={voltarDaSelecaoImportacao}><X color={theme.muted}/></TouchableOpacity>
+          <TouchableOpacity onPress={voltarDaSelecaoImportacao}><X/></TouchableOpacity>
         </View>
 
         <View style={[styles.previewStatsRow, isCompact && styles.previewStatsRowCompact]}>
@@ -2764,7 +2935,7 @@ return (
       <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Selecionar validade</Text>
-          <TouchableOpacity onPress={() => setShowDatePicker(false)}><X color={theme.muted}/></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowDatePicker(false)}><X/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataValidadeSelecionada}
@@ -2793,7 +2964,7 @@ return (
       <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>{alvoDatePickerHistorico === 'inicio' ? 'Data inicial' : 'Data final'}</Text>
-          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X color={theme.muted}/></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataHistoricoSelecionada}
@@ -2803,6 +2974,122 @@ return (
         />
         <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePickerHistorico(dataHistoricoSelecionada)}>
           <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+
+  {/* MODAL: MODO CONFERÊNCIA RÁPIDA */}
+  <Modal visible={showModoConferencia} transparent={true} animationType="slide">
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.dialogHeader, { backgroundColor: theme.headerBg }]}>
+        <Text style={styles.headerTitle}>Conferência Rápida</Text>
+        <TouchableOpacity onPress={finalizarModoConferencia}><X size={24}/></TouchableOpacity>
+      </View>
+      
+      <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ paddingBottom: 80 }}>
+        <View style={[styles.cardProduto, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: 20 }]}>
+          <Text style={[styles.label, { color: theme.muted }]}>ESCANEAR CÓDIGO EAN</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text, fontSize: 18, fontWeight: 'bold' }]}
+            placeholder="Digite ou escaneie EAN"
+            placeholderTextColor={theme.muted}
+            value={codigoScanConferencia}
+            onChangeText={setCodigoScanConferencia}
+            onSubmitEditing={() => conferirProdutoRapido(codigoScanConferencia)}
+            autoFocus
+          />
+        </View>
+
+        <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>Produtos Conferidos ({produtosConferidos.size})</Text>
+        
+        {Array.from(produtosConferidos).map((id) => {
+          const p = produtos.find(prod => prod.id === id);
+          return p ? (
+            <TouchableOpacity
+              key={id}
+              onPress={() => conferirProdutoRapido(p.codigo)}
+              style={[styles.cardProduto, { backgroundColor: '#D1FAE5', borderColor: '#6EE7B7', marginBottom: 8 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.prodNome, { color: '#065F46' }]}>{p.nome}</Text>
+                  <Text style={[styles.prodEan, { color: '#059669' }]}>{p.codigo}</Text>
+                </View>
+                <Check size={28} />
+              </View>
+            </TouchableOpacity>
+          ) : null;
+        })}
+
+        {produtosConferidos.size === 0 && (
+          <Text style={[styles.hintText, { color: theme.muted, textAlign: 'center', marginTop: 40 }]}>
+            Escaneie produtos para conferir
+          </Text>
+        )}
+      </ScrollView>
+
+      <TouchableOpacity style={[styles.btnDialogAction, { margin: 16 }]} onPress={finalizarModoConferencia}>
+        <Text style={styles.btnDialogActionText}>Finalizar Conferência</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  </Modal>
+
+  {/* MODAL: GRÁFICO DE STATUS */}
+  <Modal visible={showGraficoStatus} transparent={true} animationType="fade">
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.dialogBox, { backgroundColor: theme.surface, maxHeight: '85%' }]}>
+        <View style={styles.dialogHeader}>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>Distribuição de Vencimentos</Text>
+          <TouchableOpacity onPress={() => setShowGraficoStatus(false)}><X/></TouchableOpacity>
+        </View>
+        
+        <ScrollView style={{ paddingHorizontal: 0 }}>
+          {calcularDadosGrafico.datasets[0].data.length > 0 ? (
+            <View style={{ padding: 16 }}>
+              <BarChart
+                data={calcularDadosGrafico}
+                width={Dimensions.get('window').width - 60}
+                height={300}
+                yAxisLabel=""
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: theme.surface,
+                  backgroundGradientFrom: theme.surface,
+                  backgroundGradientTo: theme.surface,
+                  color: () => '#565DF0',
+                  labelColor: () => theme.muted,
+                  barPercentage: 0.7,
+                }}
+                style={{ borderRadius: 8, marginVertical: 8 }}
+                showValuesOnTopOfBars
+              />
+              
+              <View style={{ marginTop: 20, gap: 12 }}>
+                <View style={[styles.infoBox, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
+                  <Text style={{ color: '#166534', fontSize: 12, fontWeight: 'bold' }}>NO PRAZO</Text>
+                  <Text style={{ color: '#15803D', fontSize: 24, fontWeight: 'bold' }}>{calcularDadosGrafico.datasets[0].data[0]}</Text>
+                </View>
+                <View style={[styles.infoBox, { backgroundColor: '#FFFBEB', borderColor: '#FCD34D' }]}>
+                  <Text style={{ color: '#92400E', fontSize: 12, fontWeight: 'bold' }}>MARKDOWN</Text>
+                  <Text style={{ color: '#B45309', fontSize: 24, fontWeight: 'bold' }}>{calcularDadosGrafico.datasets[0].data[1]}</Text>
+                </View>
+                <View style={[styles.infoBox, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+                  <Text style={{ color: '#B91C1C', fontSize: 12, fontWeight: 'bold' }}>PRÓXIMOS</Text>
+                  <Text style={{ color: '#DC2626', fontSize: 24, fontWeight: 'bold' }}>{calcularDadosGrafico.datasets[0].data[2]}</Text>
+                </View>
+                <View style={[styles.infoBox, { backgroundColor: '#F0F0F0', borderColor: '#B3B3B3' }]}>
+                  <Text style={{ color: '#6B7280', fontSize: 12, fontWeight: 'bold' }}>VENCIDOS</Text>
+                  <Text style={{ color: '#1F2937', fontSize: 24, fontWeight: 'bold' }}>{calcularDadosGrafico.datasets[0].data[3]}</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <Text style={[styles.hintText, { color: theme.muted, textAlign: 'center', marginVertical: 40 }]}>Não há produtos para exibir</Text>
+          )}
+        </ScrollView>
+
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => setShowGraficoStatus(false)}>
+          <Text style={styles.btnDialogActionText}>Fechar</Text>
         </TouchableOpacity>
       </View>
     </View>
