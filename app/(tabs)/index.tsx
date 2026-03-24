@@ -69,6 +69,8 @@ type HistoricoRegistro = {
   detalhes: string;
 };
 
+type BancoDados = Awaited<ReturnType<typeof SQLite.openDatabaseAsync>>;
+
 const OPCOES_UNIDADE_MEDIDA: { valor: UnidadeMedida; label: string }[] = [
   { valor: 'unidades', label: 'Unid' },
   { valor: 'comprimidos', label: 'Comp' },
@@ -528,8 +530,8 @@ const registros = await db.getAllAsync('SELECT * FROM historico_produtos ORDER B
 setHistorico(registros);
 }, [abrirBanco]);
 
-const registrarHistorico = useCallback(async (entrada: Omit<HistoricoRegistro, 'id' | 'data_evento'>) => {
-const db = await abrirBanco();
+const registrarHistorico = useCallback(async (entrada: Omit<HistoricoRegistro, 'id' | 'data_evento'>, dbAtual?: BancoDados) => {
+const db = dbAtual || await abrirBanco();
 await db.runAsync(
   'INSERT INTO historico_produtos (id, produto_id, acao, nome, codigo, colaborador, data_evento, detalhes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   gerarId(),
@@ -1130,7 +1132,7 @@ copyToCacheDirectory: true
                 codigo: p.codigo,
                 colaborador: p.colaborador,
                 detalhes: `Qtd ${p.qtd} | Val ${p.validade}`,
-              });
+              }, db);
             }
             const todosProdutos = await db.getAllAsync('SELECT * FROM produtos');
             setProdutos(todosProdutos as Produto[]);
@@ -1317,7 +1319,7 @@ const persistir = async () => {
         codigo: novoCodigo,
         colaborador,
         detalhes: `Qtd ${qtdNum} | Val ${novaValidade} | Status ${novoStatusConferencia}`,
-      });
+      }, db);
     } else {
       const novoId = gerarId();
       await db.runAsync(
@@ -1331,7 +1333,7 @@ const persistir = async () => {
         codigo: novoCodigo,
         colaborador,
         detalhes: `Qtd ${qtdNum} | Val ${novaValidade} | Status ${novoStatusConferencia}`,
-      });
+      }, db);
     }
 
     const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
@@ -1380,21 +1382,30 @@ Alert.alert("Excluir", "Tem a certeza que deseja remover este produto da base de
 { text: "Cancelar", style: "cancel" },
 { text: "Excluir", style: "destructive", onPress: async () => {
 try {
-const db = await SQLite.openDatabaseAsync('farmacia.db');
-const produtoRemovido = await db.getFirstAsync('SELECT * FROM produtos WHERE id = ?', id) as Produto | null;
-await db.runAsync('DELETE FROM produtos WHERE id = ?', id);
-if (produtoRemovido) {
-await registrarHistorico({
-  produto_id: produtoRemovido.id,
-  acao: 'exclusao',
-  nome: produtoRemovido.nome,
-  codigo: produtoRemovido.codigo,
-  colaborador,
-  detalhes: `Qtd ${produtoRemovido.qtd} | Val ${produtoRemovido.validade}`,
+const db = await abrirBanco();
+let produtoRemovido: Produto | null = null;
+
+await db.withTransactionAsync(async () => {
+  produtoRemovido = await db.getFirstAsync('SELECT * FROM produtos WHERE id = ?', id) as Produto | null;
+  await db.runAsync('DELETE FROM produtos WHERE id = ?', id);
+
+  if (produtoRemovido) {
+    await registrarHistorico({
+      produto_id: produtoRemovido.id,
+      acao: 'exclusao',
+      nome: produtoRemovido.nome,
+      codigo: produtoRemovido.codigo,
+      colaborador,
+      detalhes: `Qtd ${produtoRemovido.qtd} | Val ${produtoRemovido.validade}`,
+    }, db);
+  }
 });
+
+if (editandoId === id) {
+  limparFormulario();
 }
-const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
-setProdutos(todosProdutos);
+
+setProdutos((estadoAtual) => estadoAtual.filter((produto) => produto.id !== id));
 await carregarHistorico();
 } catch {
 Alert.alert("Erro", "Falha ao apagar o produto.");
