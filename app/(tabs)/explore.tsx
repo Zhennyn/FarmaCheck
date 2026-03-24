@@ -62,7 +62,7 @@ export default function ComoUsarScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerBox}>
           <Text style={styles.headerTitle}>COMO USAR</Text>
-          <Text style={styles.headerSub}>App de Auditoria de Validade v1.0.2</Text>
+          <Text style={styles.headerSub}>FarmaCheck v1.0.2</Text>
         </View>
 
         {GUIA.map((item) => (

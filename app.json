@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "AppDeValidade",
-    "slug": "AppDeValidade",
+    "name": "FarmaCheck",
+    "slug": "farmacheck",
     "version": "1.0.2",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "appdevalidade",
+    "icon": "./assets/images/farmacheck.png",
+    "scheme": "farmacheck",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -13,10 +13,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#EAF2FF",
+        "foregroundImage": "./assets/images/farmacheck.png",
+        "monochromeImage": "./assets/images/farmacheck.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -24,19 +23,19 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/farmacheck.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/farmacheck.png",
+          "imageWidth": 170,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#151B54",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#151B54"
           }
         }
       ],
@@ -51,7 +50,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "03091333-ec48-4e61-a39d-27e4472b5d4e"
+        "projectId": "5989ec17-29bd-412f-9db5-29c44a419909"
       }
     }
   }

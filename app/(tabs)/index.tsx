@@ -4,13 +4,14 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
 import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -143,7 +144,7 @@ const ONBOARDING_STEPS = [
   { emoji: '💊', titulo: 'Bem-vindo ao App de Validade', descricao: 'Gerencie a validade dos produtos da sua loja com facilidade. Evite perdas e mantenha a equipe sempre sincronizada.' },
   { emoji: '📷', titulo: 'Cadastre Produtos', descricao: 'Escaneie o EAN com a câmera ou pesquise na base ANVISA. Preencha a validade, quantidade e medida.' },
   { emoji: '👆', titulo: 'Deslize para Gerenciar', descricao: 'Na lista principal, deslize um produto para a esquerda para revelar os botões de editar e excluir rapidamente.' },
-  { emoji: '📊', titulo: 'Relatórios e Conferência', descricao: 'Use o menu lateral (ícone de loja) para exportar PDF, ver gráficos de vencimento ou fazer conferência rápida por scan.' },
+  { emoji: '📊', titulo: 'Relatórios e Gráficos', descricao: 'Use o menu lateral (ícone de loja) para exportar PDF e visualizar gráficos de vencimento.' },
 ];
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
@@ -331,6 +332,7 @@ const isDark = themePreference === 'system' ? colorScheme === 'dark' : themePref
 const isCompact = width < 390;
 const isTablet = width >= 768;
 const larguraKpi = isTablet ? 260 : isCompact ? 188 : 220;
+const chartWidth = Math.max(260, Math.min(width - (isCompact ? 52 : 76), isTablet ? 660 : width - 44));
 const theme = useMemo(() => ({
   background: isDark ? '#020617' : '#F4F6F8',
   surface: isDark ? '#111827' : '#FFFFFF',
@@ -431,11 +433,8 @@ const [tempColaborador, setTempColaborador] = useState('');
 const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
 const [tempThemePreference, setTempThemePreference] = useState<ThemePreference>('system');
 
-// NOVOS ESTADOS: MODO CONFERÊNCIA, SWIPE, GRÁFICO
-const [showModoConferencia, setShowModoConferencia] = useState(false);
-const [produtosConferidos, setProdutosConferidos] = useState<Set<string>>(new Set());
+// NOVOS ESTADOS: SWIPE, GRÁFICO
 const [showGraficoStatus, setShowGraficoStatus] = useState(false);
-const [codigoScanConferencia, setCodigoScanConferencia] = useState('');
 const [exportandoPdf, setExportandoPdf] = useState(false);
 const [produtoSwipeado, setProdutoSwipeado] = useState<string | null>(null);
 const [refreshing, setRefreshing] = useState(false);
@@ -1641,8 +1640,9 @@ setIsScanning(true);
 };
 
 const lidarComCodigoLido = ({ data }: { data: string }) => {
-setNovoCodigo(data);
 setIsScanning(false);
+
+setNovoCodigo(data);
 buscarNaRedeDrogaria(data);
 };
 
@@ -1991,31 +1991,8 @@ const embalagemSelecionada = novaEmbalagem || embalagemAtual;
 const filtrosAvancadosAtivos = [filtroColaborador, filtroSetor, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
 
 // ==========================================
-// NOVOS: MODO CONFERÊNCIA, GRÁFICO, PDF
+// NOVOS: GRÁFICO, PDF
 // ==========================================
-const conferirProdutoRapido = useCallback((codigo: string) => {
-  const produto = produtos.find(p => p.codigo === codigo || p.codigo.includes(codigo));
-  if (!produto) {
-    exibirNotificacao('Produto não encontrado');
-    return;
-  }
-  const novo = new Set(produtosConferidos);
-  if (novo.has(produto.id)) {
-    novo.delete(produto.id);
-  } else {
-    novo.add(produto.id);
-  }
-  setProdutosConferidos(novo);
-  setCodigoScanConferencia('');
-  exibirNotificacao(`${produto.nome} - ${novo.has(produto.id) ? 'Conferido' : 'Desconferido'}`);
-}, [produtosConferidos, produtos, exibirNotificacao]);
-
-const finalizarModoConferencia = useCallback(() => {
-  setShowModoConferencia(false);
-  setCodigoScanConferencia('');
-  setProdutosConferidos(new Set());
-  exibirNotificacao(`${produtosConferidos.size} produtos conferidos`);
-}, [produtosConferidos.size, exibirNotificacao]);
 
 const calcularDadosGrafico = useMemo(() => {
   const stats = { ok: 0, markdown: 0, retirar: 0, vencido: 0 };
@@ -2357,7 +2334,18 @@ Animated.parallel([
 // ==========================================
 // RENDER UI NATIVO
 // ==========================================
-if (isLoading) return <View style={styles.center}><ActivityIndicator size="large" /></View>;
+if (isLoading) {
+return (
+<LinearGradient colors={['#151B54', '#2A3492', '#3B42CC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.splashLoadingWrap}>
+  <View style={styles.splashGlowOrb} />
+  <View style={styles.splashBrandCard}>
+    <Image source={require('../../assets/images/android-icon-foreground.png')} style={styles.splashBrandLogo} resizeMode="contain" />
+    <Text style={styles.splashBrandTitle}>FarmaCheck</Text>
+  </View>
+  <ActivityIndicator size="small" color="#E2E8F0" />
+</LinearGradient>
+);
+}
 
 if (isScanning) {
 return (
@@ -2396,7 +2384,7 @@ return (
         <Warehouse size={isCompact ? 28 : 32} />
       </TouchableOpacity>
       <View style={styles.headerTextWrap}>
-        <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>AUDITORIA DE VALIDADE</Text>
+        <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>FARMACHECK</Text>
         <View style={[styles.badgesWrap, isCompact && styles.badgesWrapCompact]}>
           <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Lj: {loja}</Text></View>
           <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Reg: {regional}</Text></View>
@@ -2435,21 +2423,21 @@ return (
   {/* MODAL: FORMULÁRIO DE REGISTO */}
   <Modal visible={showForm} animationType="fade" presentationStyle="formSheet">
     <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
-      <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}> 
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-          {editandoId ? <Edit size={28}/> : <Activity size={28}/>}
-          <Text style={[styles.modalTitle, {color: editandoId ? '#F97316' : theme.title}]}>{editandoId ? 'Editar Produto' : 'Novo Registo'}</Text>
+      <View style={[styles.modalHeader, isCompact && styles.modalHeaderCompact, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}> 
+        <View style={[styles.modalHeadingWrap, isCompact && styles.modalHeadingWrapCompact]}>
+          {editandoId ? <Edit size={isCompact ? 24 : 28}/> : <Activity size={isCompact ? 24 : 28}/>}
+          <Text numberOfLines={2} style={[styles.modalTitle, isCompact && styles.modalTitleCompact, {color: editandoId ? '#F97316' : theme.title}]}>{editandoId ? 'Editar Produto' : 'Novo Registo'}</Text>
         </View>
-        <TouchableOpacity onPress={limparFormulario} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={24} /></TouchableOpacity>
+        <TouchableOpacity onPress={limparFormulario} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={isCompact ? 22 : 24} /></TouchableOpacity>
       </View>
       
-      <ScrollView style={styles.formBody} keyboardShouldPersistTaps="handled">
+      <ScrollView style={[styles.formBody, isTablet && styles.formBodyWide]} contentContainerStyle={styles.formBodyContent} keyboardShouldPersistTaps="handled">
         {buscandoNaApi && <Text style={[styles.buscando, { color: '#60A5FA' }]}>Buscando dados na internet...</Text>}
 
         <Text style={[styles.label, { color: theme.muted }]}>CÓDIGO DE BARRAS (EAN)</Text>
         <View style={styles.row}>
           <TextInput style={[styles.input, { flex: 1, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novoCodigo} onChangeText={setNovoCodigo} keyboardType="numeric" placeholder="Digite ou bipe..." placeholderTextColor={theme.muted} maxLength={14} />
-          <TouchableOpacity style={styles.btnCamera} onPress={acionarCamera}><Camera size={24}/></TouchableOpacity>
+          <TouchableOpacity style={[styles.btnCamera, isCompact && styles.btnCameraCompact]} onPress={() => { void acionarCamera(); }}><Camera size={24}/></TouchableOpacity>
         </View>
         <Text style={[styles.autoSearchHint, { color: isDark ? '#93C5FD' : '#4338CA' }]}>Ao bipar ou digitar o EAN, o app consulta a base interna automaticamente antes da busca online.</Text>
 
@@ -2629,6 +2617,10 @@ return (
           <Text style={styles.btnDialogActionText}>Guardar Alterações</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity style={[styles.btnDialogAction, styles.btnDialogSecondary]} onPress={() => setShowConfig(false)}>
+          <Text style={styles.btnDialogSecondaryText}>Fechar</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.btnDialogDanger} onPress={limparBancoDeDados}>
           <Text style={styles.btnDialogDangerText}>Apagar Base de Dados (SQLite)</Text>
         </TouchableOpacity>
@@ -2662,19 +2654,6 @@ return (
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Resumo do Turno</Text>
             <Text style={styles.sidebarActionSubtitle}>Pendências e alertas de vencimento</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.sidebarAction, { borderColor: '#FEC84B', backgroundColor: '#FEFCE8', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            setShowModoConferencia(true);
-          }}>
-          <Check size={18} />
-          <View style={styles.sidebarActionTextWrap}>
-            <Text style={[styles.sidebarActionTitle, { color: '#A16207' }]}>Conferência Rápida</Text>
-            <Text style={styles.sidebarActionSubtitle}>Scan e check simplificado</Text>
           </View>
         </TouchableOpacity>
 
@@ -3122,19 +3101,19 @@ return (
 
   {/* MODAL: ONBOARDING */}
   <Modal visible={showOnboarding} animationType="fade">
-    <SafeAreaView style={[styles.container, { backgroundColor: '#1A1C5A' }]}>
-      <View style={{ flex: 1, padding: 28, justifyContent: 'space-between' }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ fontSize: 72, marginBottom: 28 }}>{ONBOARDING_STEPS[onboardingStep].emoji}</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 16, lineHeight: 30 }}>
+    <SafeAreaView style={styles.onboardingContainer}>
+      <View style={[styles.onboardingInner, isCompact && styles.onboardingInnerCompact]}>
+        <View style={styles.onboardingHero}>
+          <Text style={[styles.onboardingEmoji, isCompact && styles.onboardingEmojiCompact]}>{ONBOARDING_STEPS[onboardingStep].emoji}</Text>
+          <Text style={[styles.onboardingTitle, isCompact && styles.onboardingTitleCompact]}>
             {ONBOARDING_STEPS[onboardingStep].titulo}
           </Text>
-          <Text style={{ color: '#94A3B8', fontSize: 15, textAlign: 'center', lineHeight: 24, fontWeight: '600' }}>
+          <Text style={[styles.onboardingDescription, isCompact && styles.onboardingDescriptionCompact]}>
             {ONBOARDING_STEPS[onboardingStep].descricao}
           </Text>
         </View>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+        <View style={[styles.onboardingDotsRow, isCompact && styles.onboardingDotsRowCompact]}>
           {ONBOARDING_STEPS.map((_, i) => (
             <View
               key={i}
@@ -3148,9 +3127,9 @@ return (
           ))}
         </View>
 
-        <View style={{ gap: 10 }}>
+        <View style={styles.onboardingActionsWrap}>
           <TouchableOpacity
-            style={{ backgroundColor: '#565DF0', padding: 18, borderRadius: 16, alignItems: 'center' }}
+            style={[styles.onboardingActionPrimary, isCompact && styles.onboardingActionPrimaryCompact]}
             onPress={async () => {
               if (onboardingStep < ONBOARDING_STEPS.length - 1) {
                 setOnboardingStep((s) => s + 1);
@@ -3159,25 +3138,25 @@ return (
                 setShowOnboarding(false);
               }
             }}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16, textTransform: 'uppercase' }}>
+            <Text style={styles.onboardingActionPrimaryText}>
               {onboardingStep < ONBOARDING_STEPS.length - 1 ? 'Próximo' : 'Começar'}
             </Text>
           </TouchableOpacity>
 
           {onboardingStep > 0 ? (
             <TouchableOpacity
-              style={{ padding: 14, alignItems: 'center' }}
+              style={styles.onboardingActionSecondary}
               onPress={() => setOnboardingStep((s) => s - 1)}>
-              <Text style={{ color: '#64748B', fontWeight: '700', fontSize: 14 }}>Anterior</Text>
+              <Text style={styles.onboardingActionSecondaryText}>Anterior</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={{ padding: 14, alignItems: 'center' }}
+              style={styles.onboardingActionSecondary}
               onPress={async () => {
                 await AsyncStorage.setItem(CHAVE_ONBOARDING_CONCLUIDO, 'ok');
                 setShowOnboarding(false);
               }}>
-              <Text style={{ color: '#64748B', fontWeight: '700', fontSize: 14 }}>Pular</Text>
+              <Text style={styles.onboardingActionSecondaryText}>Pular</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -3185,76 +3164,21 @@ return (
     </SafeAreaView>
   </Modal>
 
-  {/* MODAL: MODO CONFERÊNCIA RÁPIDA */}
-  <Modal visible={showModoConferencia} transparent={true} animationType="slide">
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.dialogHeader, { backgroundColor: theme.headerBg }]}>
-        <Text style={styles.headerTitle}>Conferência Rápida</Text>
-        <TouchableOpacity onPress={finalizarModoConferencia}><X size={24}/></TouchableOpacity>
-      </View>
-      
-      <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ paddingBottom: 80 }}>
-        <View style={[styles.cardProduto, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: 20 }]}>
-          <Text style={[styles.label, { color: theme.muted }]}>ESCANEAR CÓDIGO EAN</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text, fontSize: 18, fontWeight: 'bold' }]}
-            placeholder="Digite ou escaneie EAN"
-            placeholderTextColor={theme.muted}
-            value={codigoScanConferencia}
-            onChangeText={setCodigoScanConferencia}
-            onSubmitEditing={() => conferirProdutoRapido(codigoScanConferencia)}
-            autoFocus
-          />
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>Produtos Conferidos ({produtosConferidos.size})</Text>
-        
-        {Array.from(produtosConferidos).map((id) => {
-          const p = produtos.find(prod => prod.id === id);
-          return p ? (
-            <TouchableOpacity
-              key={id}
-              onPress={() => conferirProdutoRapido(p.codigo)}
-              style={[styles.cardProduto, { backgroundColor: '#D1FAE5', borderColor: '#6EE7B7', marginBottom: 8 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.prodNome, { color: '#065F46' }]}>{p.nome}</Text>
-                  <Text style={[styles.prodEan, { color: '#059669' }]}>{p.codigo}</Text>
-                </View>
-                <Check size={28} />
-              </View>
-            </TouchableOpacity>
-          ) : null;
-        })}
-
-        {produtosConferidos.size === 0 && (
-          <Text style={[styles.hintText, { color: theme.muted, textAlign: 'center', marginTop: 40 }]}>
-            Escaneie produtos para conferir
-          </Text>
-        )}
-      </ScrollView>
-
-      <TouchableOpacity style={[styles.btnDialogAction, { margin: 16 }]} onPress={finalizarModoConferencia}>
-        <Text style={styles.btnDialogActionText}>Finalizar Conferência</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
-  </Modal>
-
   {/* MODAL: GRÁFICO DE STATUS */}
   <Modal visible={showGraficoStatus} transparent={true} animationType="fade">
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.dialogBox, { backgroundColor: theme.surface, maxHeight: '85%' }]}>
+      <View style={[styles.dialogBox, styles.chartDialog, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Distribuição de Vencimentos</Text>
           <TouchableOpacity onPress={() => setShowGraficoStatus(false)}><X/></TouchableOpacity>
         </View>
         
-        <ScrollView style={{ paddingHorizontal: 0 }}>
+        <ScrollView style={styles.chartScroll}>
           {calcularDadosGrafico.datasets[0].data.length > 0 ? (
-            <View style={{ padding: 16 }}>
+            <View style={[styles.chartBody, isCompact && styles.chartBodyCompact]}>
               <BarChart
                 data={calcularDadosGrafico}
-                width={Dimensions.get('window').width - 60}
+                width={chartWidth}
                 height={300}
                 yAxisLabel=""
                 yAxisSuffix=""
@@ -3323,7 +3247,7 @@ const styles = StyleSheet.create({
 container: { flex: 1, backgroundColor: '#F4F6F8' },
 center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-notificacao: { backgroundColor: '#565DF0', padding: 16, marginHorizontal: 16, marginTop: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12, elevation: 6, shadowColor: '#565DF0', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3 },
+notificacao: { position: 'absolute', top: Platform.OS === 'ios' ? 12 : 10, left: 14, right: 14, zIndex: 30, backgroundColor: '#565DF0', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', paddingVertical: 12, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, elevation: 14, shadowColor: '#312E81', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 8 },
 notificacaoText: { color: '#fff', fontSize: 13, fontWeight: 'bold', flex: 1 },
 
 header: { backgroundColor: '#2C2E7D', padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 10, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 },
@@ -3441,9 +3365,15 @@ fab: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#565DF0', 
 
 modalContainer: { flex: 1, backgroundColor: '#F4F6F8' },
 modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+modalHeaderCompact: { paddingHorizontal: 16, paddingVertical: 14, alignItems: 'flex-start' },
+modalHeadingWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, paddingRight: 10 },
+modalHeadingWrapCompact: { paddingRight: 0 },
 modalTitle: { fontSize: 22, fontWeight: '900', textTransform: 'uppercase' },
+modalTitleCompact: { fontSize: 18, lineHeight: 23 },
 btnCloseModal: { backgroundColor: '#F3F4F6', padding: 8, borderRadius: 20 },
-formBody: { padding: 24 },
+formBody: { paddingHorizontal: 24, paddingTop: 18 },
+formBodyWide: { width: '100%', maxWidth: 760, alignSelf: 'center' },
+formBodyContent: { paddingBottom: 60 },
 label: { fontSize: 12, fontWeight: '900', color: '#6B7280', marginBottom: 8, marginTop: 20, letterSpacing: 0.5 },
 input: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 16, padding: 16, fontSize: 16, fontWeight: 'bold', color: '#1F2937' },
 presentationPreview: { backgroundColor: '#FFF7ED', borderRadius: 16, borderWidth: 1, borderColor: '#FED7AA', padding: 14 },
@@ -3470,15 +3400,20 @@ row: { flexDirection: 'row', alignItems: 'center' },
 rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 autoSearchHint: { color: '#4338CA', fontSize: 12, marginTop: 10, fontWeight: '700', lineHeight: 18 },
 btnCamera: { backgroundColor: '#565DF0', width: 60, height: 60, borderRadius: 16, marginLeft: 12, justifyContent: 'center', alignItems: 'center', elevation: 2 },
+btnCameraCompact: { width: 52, height: 52, marginLeft: 8 },
 btnSalvar: { flexDirection: 'row', padding: 20, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginTop: 40, marginBottom: 60, elevation: 4 },
 btnSalvarText: { color: '#fff', fontSize: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
 buscando: { color: '#565DF0', fontSize: 12, marginTop: 6, fontWeight: 'bold' },
 
 overlayModal: { flex: 1, backgroundColor: 'rgba(26, 28, 90, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-dialogBox: { backgroundColor: '#fff', width: '100%', borderRadius: 24, padding: 24 },
-datePickerDialog: { backgroundColor: '#fff', width: '100%', borderRadius: 24, padding: 24 },
+dialogBox: { backgroundColor: '#fff', width: '100%', maxWidth: 760, borderRadius: 24, padding: 24 },
+datePickerDialog: { backgroundColor: '#fff', width: '100%', maxWidth: 560, borderRadius: 24, padding: 24 },
 dialogHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
 dialogTitle: { fontSize: 20, fontWeight: '900', color: '#1A1C5A', textTransform: 'uppercase' },
+chartDialog: { maxHeight: '85%' },
+chartScroll: { paddingHorizontal: 0 },
+chartBody: { padding: 16 },
+chartBodyCompact: { paddingHorizontal: 8, paddingVertical: 12 },
 configOptionCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, backgroundColor: '#F8FAFC', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', padding: 16, marginTop: 4 },
 configOptionTextWrap: { flex: 1 },
 configOptionTitle: { color: '#0F172A', fontSize: 14, fontWeight: '900', marginBottom: 4 },
@@ -3559,5 +3494,32 @@ cameraTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 btnFecharCamera: { backgroundColor: '#EF4444', padding: 12, borderRadius: 24 },
 camera: { flex: 1 },
 cameraOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', pointerEvents: 'none' },
-cameraTarget: { width: 250, height: 150, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', borderRadius: 16 }
+cameraTarget: { width: 250, height: 150, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', borderRadius: 16 },
+
+onboardingContainer: { flex: 1, backgroundColor: '#1A1C5A' },
+onboardingInner: { flex: 1, padding: 28, justifyContent: 'space-between', width: '100%', maxWidth: 760, alignSelf: 'center' },
+onboardingInnerCompact: { paddingHorizontal: 16, paddingVertical: 20 },
+onboardingHero: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+onboardingEmoji: { fontSize: 72, marginBottom: 28 },
+onboardingEmojiCompact: { fontSize: 58, marginBottom: 22 },
+onboardingTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 16, lineHeight: 30 },
+onboardingTitleCompact: { fontSize: 20, lineHeight: 28 },
+onboardingDescription: { color: '#94A3B8', fontSize: 15, textAlign: 'center', lineHeight: 24, fontWeight: '600' },
+onboardingDescriptionCompact: { fontSize: 14, lineHeight: 22 },
+onboardingDotsRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 24 },
+onboardingDotsRowCompact: { marginBottom: 18 },
+onboardingActionsWrap: { gap: 10 },
+onboardingActionPrimary: { backgroundColor: '#565DF0', padding: 18, borderRadius: 16, alignItems: 'center' },
+onboardingActionPrimaryCompact: { paddingVertical: 14 },
+onboardingActionPrimaryText: { color: '#fff', fontWeight: '900', fontSize: 16, textTransform: 'uppercase' },
+onboardingActionSecondary: { padding: 14, alignItems: 'center' },
+onboardingActionSecondaryText: { color: '#64748B', fontWeight: '700', fontSize: 14 },
+
+splashLoadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 18, paddingHorizontal: 24 },
+splashGlowOrb: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: 'rgba(147, 197, 253, 0.16)' },
+splashBrandCard: { alignItems: 'center', gap: 10 },
+splashBrandLogo: { width: 126, height: 126 },
+splashBrandTitle: { color: '#E2E8F0', fontSize: 28, fontWeight: '900', letterSpacing: 0.6 },
+
+ 
 });
