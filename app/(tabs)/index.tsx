@@ -12,6 +12,7 @@ import { ActivityIndicator, Alert, Animated, Easing, FlatList, Modal, Platform, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as XLSX from 'xlsx';
 import baseInternaEmbutida from '../../assets/data/anvisa-base.json';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 
 type Produto = {
   id: string;
@@ -37,7 +38,8 @@ type TipoEmbalagem = 'frasco' | 'bisnaga' | 'envelope' | 'spray' | 'ampola';
 
 type StatusConferencia = 'pendente' | 'conferido' | 'resolvido';
 
-type TipoFiltro = 'todos' | 'proximos' | 'vencidos';
+type TipoFiltro = 'todos' | 'proximos' | 'no_prazo' | 'vencidos';
+type ThemePreference = 'system' | 'light' | 'dark';
 
 type OpenFoodFactsResponse = {
   status?: number;
@@ -134,11 +136,13 @@ const ROTULOS_STATUS_CONFERENCIA: Record<StatusConferencia, string> = {
 const SETORES_PADRAO = ['Balcao', 'Gondola', 'Geladeira', 'Controlados', 'Estoque'];
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
+const VERSAO_APP = '1.0.1';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
 const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
 const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
+const CHAVE_MODO_TEMA = '@modo_tema';
 const TIPOS_PLANILHA = [
   'text/csv',
   'text/plain',
@@ -308,9 +312,35 @@ export default function App() {
 const [isLoading, setIsLoading] = useState(true);
 const [permission, requestPermission] = useCameraPermissions();
 const { width } = useWindowDimensions();
+const colorScheme = useColorScheme();
+const [themePreference, setThemePreference] = useState<ThemePreference>('system');
+const isDark = themePreference === 'system' ? colorScheme === 'dark' : themePreference === 'dark';
 const isCompact = width < 390;
 const isTablet = width >= 768;
 const larguraKpi = isTablet ? 260 : isCompact ? 188 : 220;
+const theme = useMemo(() => ({
+  background: isDark ? '#020617' : '#F4F6F8',
+  surface: isDark ? '#111827' : '#FFFFFF',
+  surfaceAlt: isDark ? '#0F172A' : '#F8FAFC',
+  border: isDark ? '#334155' : '#E5E7EB',
+  borderSoft: isDark ? '#1E293B' : '#E2E8F0',
+  text: isDark ? '#E5E7EB' : '#111827',
+  title: isDark ? '#F8FAFC' : '#1A1C5A',
+  muted: isDark ? '#94A3B8' : '#6B7280',
+  subtle: isDark ? '#CBD5E1' : '#475569',
+  inputBg: isDark ? '#0B1220' : '#FFFFFF',
+  chipBg: isDark ? '#1F2937' : '#F3F4F6',
+  chipText: isDark ? '#CBD5E1' : '#4B5563',
+  eanBg: isDark ? '#0B1220' : '#F3F4F6',
+  actionBg: isDark ? '#111827' : '#F9FAFB',
+  closeBg: isDark ? '#1F2937' : '#F3F4F6',
+  headerBg: isDark ? '#0F172A' : '#2C2E7D',
+  headerPanelBg: isDark ? '#111827' : '#1E205B',
+  headerPanelBorder: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(255,255,255,0.1)',
+  overlay: isDark ? 'rgba(2,6,23,0.82)' : 'rgba(26, 28, 90, 0.8)',
+  bottomOverlay: isDark ? 'rgba(2,6,23,0.72)' : 'rgba(26, 28, 90, 0.5)',
+  sidebarOverlay: isDark ? 'rgba(2,6,23,0.5)' : 'rgba(15, 23, 42, 0.35)',
+}), [isDark]);
 
 // ==========================================
 // ESTADOS GLOBAIS
@@ -326,7 +356,8 @@ const [showConfig, setShowConfig] = useState(false);
 const [showResumoTurno, setShowResumoTurno] = useState(false);
 const [showFiltrosAvancados, setShowFiltrosAvancados] = useState(false);
 const [showHistorico, setShowHistorico] = useState(false);
-const [showSidebarTemporaria, setShowSidebarTemporaria] = useState(false);
+const [showMenuLateral, setShowMenuLateral] = useState(false);
+const [versaoBaseInternaAtual, setVersaoBaseInternaAtual] = useState('');
 const [termoBusca, setTermoBusca] = useState('');
 const [filtroValidade, setFiltroValidade] = useState<TipoFiltro>('todos');
 const [filtroColaborador, setFiltroColaborador] = useState('');
@@ -385,6 +416,7 @@ const [tempLoja, setTempLoja] = useState('');
 const [tempRegional, setTempRegional] = useState('');
 const [tempColaborador, setTempColaborador] = useState('');
 const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
+const [tempThemePreference, setTempThemePreference] = useState<ThemePreference>('system');
 
 const ultimoCodigoBuscado = useRef('');
 const cacheEanMemoria = useRef<Record<string, CadastroEan>>({});
@@ -545,6 +577,17 @@ return texto;
 const formatarDataHora = (timestamp: number) => {
 const data = new Date(timestamp);
 return `${data.toLocaleDateString('pt-BR')} ${data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const formatarResumoBaseInterna = (versao: string) => {
+if (!versao) return 'nao carregada';
+if (versao.startsWith('manual:')) {
+  const timestamp = Number(versao.split(':')[1]);
+  if (Number.isFinite(timestamp)) return `manual em ${formatarDataHora(timestamp)}`;
+  return 'manual';
+}
+if (versao === VERSAO_BASE_INTERNA) return `embutida (${VERSAO_BASE_INTERNA})`;
+return versao;
 };
 
 const obterTipoProduto = (produto: Pick<Produto, 'embalagem' | 'unidade_medida' | 'apresentacao'>) => {
@@ -790,10 +833,15 @@ const l = await AsyncStorage.getItem('@loja');
 const r = await AsyncStorage.getItem('@regional');
 const c = await AsyncStorage.getItem('@colaborador');
 const autoExcluir = await AsyncStorage.getItem(CHAVE_AUTO_EXCLUIR_VENCIDOS);
+const modoTema = await AsyncStorage.getItem(CHAVE_MODO_TEMA);
 if (l) setLoja(l);
 if (r) setRegional(r);
 if (c) setColaborador(c);
 setAutoExcluirVencidos(autoExcluir === 'true');
+if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
+  setThemePreference(modoTema);
+  setTempThemePreference(modoTema);
+}
 
   // 2. Inicializar Banco de Dados (SQLite)
   const db = await abrirBanco();
@@ -893,16 +941,27 @@ useEffect(() => {
 void agendarLembreteRecorrente();
 }, [agendarLembreteRecorrente]);
 
+const abrirConfiguracoes = useCallback(() => {
+setTempLoja(loja);
+setTempRegional(regional);
+setTempColaborador(colaborador);
+setTempAutoExcluirVencidos(autoExcluirVencidos);
+setTempThemePreference(themePreference);
+setShowConfig(true);
+}, [autoExcluirVencidos, colaborador, loja, regional, themePreference]);
+
 const salvarConfiguracoes = async () => {
 try {
 await AsyncStorage.setItem('@loja', tempLoja.toUpperCase());
 await AsyncStorage.setItem('@regional', tempRegional.toUpperCase());
 await AsyncStorage.setItem('@colaborador', tempColaborador);
 await AsyncStorage.setItem(CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false');
+await AsyncStorage.setItem(CHAVE_MODO_TEMA, tempThemePreference);
 setLoja(tempLoja.toUpperCase());
 setRegional(tempRegional.toUpperCase());
 setColaborador(tempColaborador);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
+setThemePreference(tempThemePreference);
 setShowConfig(false);
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
@@ -1545,8 +1604,8 @@ const persistir = async () => {
     const qtdNum = parseInt(novaQtd, 10) || 1;
     const quantidadeMedidaNum = parseNumeroMedida(novaQuantidadeMedida);
     const embalagemFinal = novaEmbalagem || inferirTipoEmbalagem(novaApresentacao) || '';
-    const setorFinal = novoSetor.trim();
-    const loteFinal = novoLote.trim();
+    const setorFinal = '';
+    const loteFinal = '';
     const observacaoFinal = novaObservacao.trim();
     const validadeNormalizada = normalizarDataISO(novaValidade);
 
@@ -1683,14 +1742,6 @@ Alert.alert("Erro", mensagem);
 }}
 ]);
 }, [excluirProdutosSilenciosamente]);
-
-const abrirConfiguracoes = () => {
-setTempLoja(loja);
-setTempRegional(regional);
-setTempColaborador(colaborador);
-setTempAutoExcluirVencidos(autoExcluirVencidos);
-setShowConfig(true);
-};
 
 useEffect(() => {
 if (isLoading || !autoExcluirVencidos || produtos.length === 0) return;
@@ -1855,6 +1906,7 @@ return produtosComAnalise.filter((produto) => {
 
   if (filtroValidade === 'vencidos') return produto.statusValidade.tipo === 'vencido';
   if (filtroValidade === 'proximos') return produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'markdown';
+  if (filtroValidade === 'no_prazo') return produto.statusValidade.tipo === 'ok';
 
   if (filtroColaborador && !(produto.colaborador || '').toLowerCase().includes(filtroColaborador.toLowerCase())) return false;
   if (filtroSetor && (produto.setor || '') !== filtroSetor) return false;
@@ -1886,37 +1938,37 @@ const embalagemSelecionada = novaEmbalagem || embalagemAtual;
 const filtrosAvancadosAtivos = [filtroColaborador, filtroSetor, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
 
 const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => (
-  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide]}>
+  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }]}>
     <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
       <View style={styles.cardHeaderInfo}>
-        <Text style={styles.prodNome}>{p.nome}</Text>
+        <Text style={[styles.prodNome, { color: theme.text }]}>{p.nome}</Text>
 
         <View style={styles.tagsRow}>
           {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
           {p.embalagemCalculada ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[p.embalagemCalculada]}</Text></View> : null}
           <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
           <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
-          {p.setor ? <View style={styles.tagSetor}><Text style={styles.tagSetorText}>{p.setor}</Text></View> : null}
-          <View style={styles.tagColab}><User size={10} color="#4B5563" /><Text style={styles.tagColabText}>{p.colaborador}</Text></View>
+          {p.setor ? <View style={[styles.tagSetor, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><Text style={[styles.tagSetorText, { color: theme.chipText }]}>{p.setor}</Text></View> : null}
+          <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} color={theme.muted} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
         </View>
 
-        <View style={styles.eanBox}><Barcode size={14} color="#4B5563" /><Text style={styles.prodEan}>{p.codigo}</Text></View>
+        <View style={[styles.eanBox, { backgroundColor: theme.eanBg, borderColor: theme.border }]}><Barcode size={14} color={theme.muted} /><Text style={[styles.prodEan, { color: theme.chipText }]}>{p.codigo}</Text></View>
         {(p.lote || p.observacao) ? (
           <View style={styles.detailList}>
-            {p.lote ? <Text style={styles.detailText}>Lote: {p.lote}</Text> : null}
-            {p.observacao ? <Text style={styles.detailText}>Obs: {p.observacao}</Text> : null}
+            {p.lote ? <Text style={[styles.detailText, { color: theme.muted }]}>Lote: {p.lote}</Text> : null}
+            {p.observacao ? <Text style={[styles.detailText, { color: theme.muted }]}>Obs: {p.observacao}</Text> : null}
           </View>
         ) : null}
       </View>
       <View style={[styles.actions, isCompact && styles.actionsCompact]}>
-        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={styles.actionBtn}><Edit2 size={18} color="#6B7280"/></TouchableOpacity>
-        <TouchableOpacity onPress={() => removerProduto(p.id)} style={styles.actionBtn}><Trash2 size={18} color="#EF4444"/></TouchableOpacity>
+        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Edit2 size={18} color={theme.muted}/></TouchableOpacity>
+        <TouchableOpacity onPress={() => removerProduto(p.id)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Trash2 size={18} color="#EF4444"/></TouchableOpacity>
       </View>
     </View>
 
     <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
-      <View style={styles.infoBox}><Text style={styles.infoLabel}>QTD</Text><Text style={styles.infoValue}>{p.qtd}</Text></View>
-      <View style={styles.infoBox}><Text style={styles.infoLabel}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={styles.infoValue}>{p.totalMedidoCalculado || p.codigo}</Text></View>
+      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>QTD</Text><Text style={[styles.infoValue, { color: theme.text }]}>{p.qtd}</Text></View>
+      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{p.totalMedidoCalculado || p.codigo}</Text></View>
     </View>
 
     <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }] }>
@@ -1930,7 +1982,7 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
       </View>
     </View>
   </View>
-), [iniciarEdicao, isCompact, isTablet, removerProduto]);
+), [iniciarEdicao, isCompact, isTablet, removerProduto, theme.actionBg, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
 
 const renderListaHeader = (
   <>
@@ -1963,35 +2015,26 @@ const renderListaHeader = (
     </ScrollView>
 
     <View style={styles.toolbar}>
-      <Text style={styles.sectionTitle}>Base de Dados (SQLite) ({produtosFiltrados.length})</Text>
+      <Text style={[styles.sectionTitle, { color: theme.title }]}>Operação do Dia ({produtosFiltrados.length})</Text>
       <View style={[styles.actionRow, isCompact && styles.actionRowCompact]}>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#34D399', backgroundColor: '#ECFDF5' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={exportarParaExcel}>
-           <Download size={16} color="#059669" />
-           <Text style={[styles.btnOutlineText, { color: '#059669' }]}>Salvar Interno</Text>
-         </TouchableOpacity>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={baixarModeloPlanilha}>
-           <Download size={16} color="#B45309" />
-           <Text style={[styles.btnOutlineText, { color: '#B45309' }]}>Baixar Modelo</Text>
-         </TouchableOpacity>
-         <TouchableOpacity style={[styles.btnOutline, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={importarDeExcel}>
-           <Upload size={16} color="#2563EB" />
-           <Text style={[styles.btnOutlineText, { color: '#2563EB' }]}>Importar Produtos</Text>
-         </TouchableOpacity>
          <TouchableOpacity style={[styles.btnOutline, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF' }, isCompact && styles.btnOutlineCompact, isTablet && styles.btnOutlineWide]} onPress={() => setShowFiltrosAvancados(true)}>
            <Search size={16} color="#4338CA" />
-           <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
+           <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros Avançados {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
          </TouchableOpacity>
       </View>
-      <View style={styles.searchBox}>
-        <Search size={18} color="#9CA3AF" style={{marginLeft: 12}} />
-        <TextInput style={styles.searchInput} placeholder="Procurar produto (Nome ou EAN)..." value={termoBusca} onChangeText={setTermoBusca} />
+      <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Search size={18} color={theme.muted} style={{marginLeft: 12}} />
+        <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar por nome ou EAN..." placeholderTextColor={theme.muted} value={termoBusca} onChangeText={setTermoBusca} />
       </View>
       <View style={styles.filterRow}>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
+        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
+          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
+        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'no_prazo' && styles.filterChipActive]} onPress={() => setFiltroValidade('no_prazo')}>
+          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'no_prazo' && styles.filterChipTextActive]}>No Prazo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
+          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.filterChip, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
           <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
@@ -2027,7 +2070,7 @@ void avaliarResumoDeRisco();
 }, [enviarNotificacaoLocal, notificacoesHabilitadas, qtdRiscoImediato, qtdVence7, qtdVence15]);
 
 useEffect(() => {
-if (!showSidebarTemporaria) return;
+if (!showMenuLateral) return;
 
 deslocamentoSidebar.setValue(28);
 opacidadePainelModal.setValue(0);
@@ -2046,7 +2089,22 @@ Animated.parallel([
     useNativeDriver: true,
   }),
 ]).start();
-}, [deslocamentoSidebar, opacidadePainelModal, showSidebarTemporaria]);
+}, [deslocamentoSidebar, opacidadePainelModal, showMenuLateral]);
+
+useEffect(() => {
+if (!showMenuLateral) return;
+
+const carregarResumoBaseInterna = async () => {
+  try {
+    const versao = await AsyncStorage.getItem(CHAVE_BASE_INTERNA);
+    setVersaoBaseInternaAtual(versao || '');
+  } catch {
+    setVersaoBaseInternaAtual('');
+  }
+};
+
+void carregarResumoBaseInterna();
+}, [showMenuLateral]);
 
 const algumBottomSheetAberto = showResumoTurno || showHistorico || showImportPreview;
 
@@ -2097,7 +2155,7 @@ barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a"] }}
 }
 
 return (
-<SafeAreaView style={styles.container}>
+<SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
   
   {/* NOTIFICAÇÃO COM FADE */}
   {showNotificacao && (
@@ -2108,28 +2166,27 @@ return (
   )}
 
   {/* HEADER */}
-  <View style={[styles.header, isCompact && styles.headerCompact, isTablet && styles.headerWide]}>
+  <View style={[styles.header, isCompact && styles.headerCompact, isTablet && styles.headerWide, { backgroundColor: theme.headerBg }]}>
     <View style={[styles.headerLeft, isCompact && styles.headerLeftCompact]}>
-      <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowSidebarTemporaria(true)}>
+      <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowMenuLateral(true)}>
         <Warehouse color="#C7D2FE" size={isCompact ? 28 : 32} />
       </TouchableOpacity>
       <View style={styles.headerTextWrap}>
         <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>AUDITORIA DE VALIDADE</Text>
         <View style={[styles.badgesWrap, isCompact && styles.badgesWrapCompact]}>
-          <View style={styles.badgeTop}><Text style={styles.badgeTopText}>Lj: {loja}</Text></View>
-          <View style={styles.badgeTop}><Text style={styles.badgeTopText}>Reg: {regional}</Text></View>
-          <TouchableOpacity style={styles.btnIconEdit} onPress={abrirConfiguracoes}><Edit2 size={12} color="#C7D2FE"/></TouchableOpacity>
+          <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Lj: {loja}</Text></View>
+          <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Reg: {regional}</Text></View>
         </View>
       </View>
     </View>
-    <TouchableOpacity style={[styles.colabBox, isCompact && styles.colabBoxCompact, isTablet && styles.colabBoxWide]} onPress={abrirConfiguracoes}>
+    <View style={[styles.colabBox, isCompact && styles.colabBoxCompact, isTablet && styles.colabBoxWide, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}>
       <Text style={styles.colabLabel}>COLABORADOR:</Text>
       <Text style={styles.colabName}>{colaborador || 'Sem Nome'}</Text>
-    </TouchableOpacity>
+    </View>
   </View>
 
   <FlatList
-    style={styles.content}
+    style={[styles.content, { backgroundColor: theme.background }]}
     contentContainerStyle={[styles.contentContainer, isTablet && styles.contentContainerWide]}
     keyboardShouldPersistTaps="handled"
     data={produtosFiltrados}
@@ -2150,42 +2207,36 @@ return (
 
   {/* MODAL: FORMULÁRIO DE REGISTO */}
   <Modal visible={showForm} animationType="fade" presentationStyle="formSheet">
-    <SafeAreaView style={styles.modalContainer}>
-      <View style={styles.modalHeader}>
+    <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+      <View style={[styles.modalHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}> 
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
           {editandoId ? <Edit color="#F97316" size={28}/> : <Activity color="#1A1C5A" size={28}/>}
-          <Text style={[styles.modalTitle, {color: editandoId ? '#F97316' : '#1A1C5A'}]}>{editandoId ? 'Editar Produto' : 'Novo Registo'}</Text>
+          <Text style={[styles.modalTitle, {color: editandoId ? '#F97316' : theme.title}]}>{editandoId ? 'Editar Produto' : 'Novo Registo'}</Text>
         </View>
-        <TouchableOpacity onPress={limparFormulario} style={styles.btnCloseModal}><X color="#4B5563" size={24} /></TouchableOpacity>
+        <TouchableOpacity onPress={limparFormulario} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X color={theme.muted} size={24} /></TouchableOpacity>
       </View>
       
       <ScrollView style={styles.formBody} keyboardShouldPersistTaps="handled">
-        {buscandoNaApi && <Text style={styles.buscando}>Buscando dados na internet...</Text>}
+        {buscandoNaApi && <Text style={[styles.buscando, { color: '#60A5FA' }]}>Buscando dados na internet...</Text>}
 
-        <Text style={styles.label}>CÓDIGO DE BARRAS (EAN)</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>CÓDIGO DE BARRAS (EAN)</Text>
         <View style={styles.row}>
-          <TextInput style={[styles.input, { flex: 1, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]} value={novoCodigo} onChangeText={setNovoCodigo} keyboardType="numeric" placeholder="Digite ou bipe..." maxLength={14} />
+          <TextInput style={[styles.input, { flex: 1, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novoCodigo} onChangeText={setNovoCodigo} keyboardType="numeric" placeholder="Digite ou bipe..." placeholderTextColor={theme.muted} maxLength={14} />
           <TouchableOpacity style={styles.btnCamera} onPress={acionarCamera}><Camera color="#fff" size={24}/></TouchableOpacity>
         </View>
-        <Text style={styles.autoSearchHint}>Ao bipar ou digitar o EAN, o app consulta a base interna automaticamente antes da busca online.</Text>
+        <Text style={[styles.autoSearchHint, { color: isDark ? '#93C5FD' : '#4338CA' }]}>Ao bipar ou digitar o EAN, o app consulta a base interna automaticamente antes da busca online.</Text>
 
-        <Text style={styles.label}>NOME DO PRODUTO *</Text>
-        <TextInput style={styles.input} value={novoNome} onChangeText={setNovoNome} placeholder="Ex: Dipirona 500mg" />
+        <Text style={[styles.label, { color: theme.muted }]}>NOME DO PRODUTO *</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novoNome} onChangeText={setNovoNome} placeholder="Ex: Dipirona 500mg" placeholderTextColor={theme.muted} />
 
-        {novaApresentacao ? (
+        <Text style={[styles.label, { color: theme.muted }]}>APRESENTAÇÃO</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novaApresentacao} onChangeText={setNovaApresentacao} placeholder="Ex: 30 comprimidos / 120 ml / 20 g" placeholderTextColor={theme.muted} />
+        {embalagemSelecionada ? (
           <>
-            <Text style={styles.label}>APRESENTAÇÃO ENCONTRADA</Text>
-            <View style={styles.presentationPreview}>
-              <Text style={styles.presentationPreviewText}>{novaApresentacao}</Text>
+            <Text style={[styles.label, { color: theme.muted }]}>EMBALAGEM IDENTIFICADA</Text>
+            <View style={styles.packagePreview}>
+              <Text style={styles.packagePreviewText}>{ROTULOS_TIPO_EMBALAGEM[embalagemSelecionada as TipoEmbalagem]}</Text>
             </View>
-            {embalagemSelecionada ? (
-              <>
-                <Text style={styles.label}>EMBALAGEM IDENTIFICADA</Text>
-                <View style={styles.packagePreview}>
-                  <Text style={styles.packagePreviewText}>{ROTULOS_TIPO_EMBALAGEM[embalagemSelecionada as TipoEmbalagem]}</Text>
-                </View>
-              </>
-            ) : null}
           </>
         ) : null}
 
@@ -2200,27 +2251,12 @@ return (
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.measureHint}>A embalagem fica separada. Ex.: frasco com 120 ml continua calculando em ml.</Text>
+        <Text style={[styles.measureHint, { color: theme.subtle }]}>A embalagem fica separada. Ex.: frasco com 120 ml continua calculando em ml.</Text>
 
-        <Text style={styles.label}>CONTEÚDO POR EMBALAGEM</Text>
-        <TextInput style={styles.input} value={novaQuantidadeMedida} onChangeText={setNovaQuantidadeMedida} keyboardType="decimal-pad" placeholder="Ex: 30, 120, 20" />
+        <Text style={[styles.label, { color: theme.muted }]}>CONTEÚDO POR EMBALAGEM</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novaQuantidadeMedida} onChangeText={setNovaQuantidadeMedida} keyboardType="decimal-pad" placeholder="Ex: 30, 120, 20" placeholderTextColor={theme.muted} />
 
-        <Text style={styles.label}>SETOR</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
-          <View style={styles.quickChipRow}>
-            {SETORES_PADRAO.map((setor) => (
-              <TouchableOpacity key={setor} style={[styles.quickChip, novoSetor === setor && styles.quickChipActive]} onPress={() => setNovoSetor(setor)}>
-                <Text style={[styles.quickChipText, novoSetor === setor && styles.quickChipTextActive]}>{setor}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-        <TextInput style={styles.input} value={novoSetor} onChangeText={setNovoSetor} placeholder="Ex: Balcao" />
-
-        <Text style={styles.label}>LOTE</Text>
-        <TextInput style={styles.input} value={novoLote} onChangeText={setNovoLote} placeholder="Ex: L12345" />
-
-        <Text style={styles.label}>STATUS DE CONFERÊNCIA</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>STATUS DE CONFERÊNCIA</Text>
         <View style={styles.measureOptionsWrap}>
           {(['pendente', 'conferido', 'resolvido'] as StatusConferencia[]).map((status) => (
             <TouchableOpacity
@@ -2232,15 +2268,15 @@ return (
           ))}
         </View>
 
-        <Text style={styles.label}>OBSERVAÇÃO</Text>
-        <TextInput style={[styles.input, styles.inputMultiline]} value={novaObservacao} onChangeText={setNovaObservacao} placeholder="Observações do item" multiline numberOfLines={3} />
+        <Text style={[styles.label, { color: theme.muted }]}>OBSERVAÇÃO</Text>
+        <TextInput style={[styles.input, styles.inputMultiline, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novaObservacao} onChangeText={setNovaObservacao} placeholder="Observações do item" placeholderTextColor={theme.muted} multiline numberOfLines={3} />
 
-        <Text style={styles.label}>QUANTIDADE *</Text>
-        <TextInput style={styles.input} value={novaQtd} onChangeText={setNovaQtd} keyboardType="number-pad" placeholder="1" />
+        <Text style={[styles.label, { color: theme.muted }]}>QUANTIDADE *</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={novaQtd} onChangeText={setNovaQtd} keyboardType="number-pad" placeholder="1" placeholderTextColor={theme.muted} />
 
-        <Text style={styles.label}>VALIDADE *</Text>
-        <TouchableOpacity style={styles.dateField} onPress={abrirDatePicker}>
-          <Text style={[styles.dateFieldText, !novaValidade && styles.dateFieldPlaceholder]}>{novaValidade ? formataDataBR(novaValidade) : 'Selecionar no calendário'}</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>VALIDADE *</Text>
+        <TouchableOpacity style={[styles.dateField, { backgroundColor: theme.inputBg, borderColor: theme.border }]} onPress={abrirDatePicker}>
+          <Text style={[styles.dateFieldText, { color: theme.text }, !novaValidade && styles.dateFieldPlaceholder, !novaValidade && { color: theme.muted }]}>{novaValidade ? formataDataBR(novaValidade) : 'Selecionar no calendário'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.btnSalvar, {backgroundColor: editandoId ? '#F97316' : '#565DF0'}]} onPress={salvarProduto}>
@@ -2253,32 +2289,62 @@ return (
 
   {/* MODAL: CONFIGURAÇÕES */}
   <Modal visible={showConfig} transparent={true} animationType="fade">
-    <View style={styles.overlayModal}>
-      <View style={styles.dialogBox}>
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
-           <Text style={styles.dialogTitle}>Definições</Text>
-           <TouchableOpacity onPress={() => setShowConfig(false)}><X color="#9CA3AF"/></TouchableOpacity>
+           <Text style={[styles.dialogTitle, { color: theme.title }]}>Definições</Text>
+           <TouchableOpacity onPress={() => setShowConfig(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
         
-        <Text style={styles.label}>NOME DO COLABORADOR</Text>
-        <TextInput style={styles.input} value={tempColaborador} onChangeText={setTempColaborador} />
+        <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempColaborador} onChangeText={setTempColaborador} placeholderTextColor={theme.muted} />
 
         <View style={styles.row}>
           <View style={{flex: 1, marginRight: 10}}>
-            <Text style={styles.label}>LOJA ATUAL</Text>
-            <TextInput style={styles.input} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" />
+            <Text style={[styles.label, { color: theme.muted }]}>LOJA ATUAL</Text>
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
           <View style={{flex: 1}}>
-            <Text style={styles.label}>REGIONAL</Text>
-            <TextInput style={styles.input} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" />
+            <Text style={[styles.label, { color: theme.muted }]}>REGIONAL</Text>
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
         </View>
 
-        <Text style={styles.label}>EXCLUSÃO AUTOMÁTICA</Text>
-        <TouchableOpacity style={styles.configOptionCard} activeOpacity={0.85} onPress={() => setTempAutoExcluirVencidos((estadoAtual) => !estadoAtual)}>
+        <Text style={[styles.label, { color: theme.muted }]}>APARÊNCIA</Text>
+        <View style={styles.measureOptionsWrap}>
+          {([
+            ['system', 'Sistema'],
+            ['light', 'Claro'],
+            ['dark', 'Escuro'],
+          ] as [ThemePreference, string][]).map(([modo, rotulo]) => {
+            const ativo = tempThemePreference === modo;
+            return (
+              <TouchableOpacity
+                key={modo}
+                style={[
+                  styles.measureChip,
+                  { backgroundColor: theme.chipBg, borderColor: theme.border },
+                  ativo && styles.measureChipActive,
+                ]}
+                onPress={() => setTempThemePreference(modo)}>
+                <Text
+                  style={[
+                    styles.measureChipText,
+                    { color: theme.chipText },
+                    ativo && styles.measureChipTextActive,
+                  ]}>
+                  {rotulo}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={[styles.label, { color: theme.muted }]}>EXCLUSÃO AUTOMÁTICA</Text>
+        <TouchableOpacity style={[styles.configOptionCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} activeOpacity={0.85} onPress={() => setTempAutoExcluirVencidos((estadoAtual) => !estadoAtual)}>
           <View style={styles.configOptionTextWrap}>
-            <Text style={styles.configOptionTitle}>Excluir na data limite</Text>
-            <Text style={styles.configOptionDescription}>
+            <Text style={[styles.configOptionTitle, { color: theme.text }]}>Excluir na data limite</Text>
+            <Text style={[styles.configOptionDescription, { color: theme.muted }]}>
               Quando ativado, produtos com validade hoje ou anterior são removidos automaticamente ao abrir o app ou atualizar a lista.
             </Text>
           </View>
@@ -2298,35 +2364,39 @@ return (
     </View>
   </Modal>
 
-  <Modal visible={showSidebarTemporaria} transparent={true} animationType="fade">
-    <View style={styles.sidebarOverlay}>
-      <TouchableOpacity style={styles.sidebarBackdrop} activeOpacity={1} onPress={() => setShowSidebarTemporaria(false)} />
-      <Animated.View style={[styles.sidebarPanel, { opacity: opacidadePainelModal, transform: [{ translateX: deslocamentoSidebar }] }]}>
+  <Modal visible={showMenuLateral} transparent={true} animationType="fade">
+    <View style={[styles.sidebarOverlay, { backgroundColor: theme.sidebarOverlay }]}>
+      <TouchableOpacity style={styles.sidebarBackdrop} activeOpacity={1} onPress={() => setShowMenuLateral(false)} />
+      <Animated.View style={[styles.sidebarPanel, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateX: deslocamentoSidebar }] }]}> 
         <View style={styles.sidebarHeader}>
           <View>
-            <Text style={styles.sidebarTitle}>Sidebar Temporaria</Text>
-            <Text style={styles.sidebarSubtitle}>Ferramentas auxiliares</Text>
+            <Text style={[styles.sidebarTitle, { color: theme.text }]}>Menu</Text>
+            <Text style={[styles.sidebarSubtitle, { color: theme.muted }]}>Acesso rápido e gestão</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowSidebarTemporaria(false)} style={styles.btnCloseModal}><X color="#4B5563" size={20} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowMenuLateral(false)} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X color={theme.muted} size={20} /></TouchableOpacity>
         </View>
 
+        <ScrollView style={styles.sidebarScroll} contentContainerStyle={styles.sidebarScrollContent} showsVerticalScrollIndicator={false}>
+
+        <Text style={styles.sidebarSectionTitle}>OPERAÇÃO</Text>
+
         <TouchableOpacity
-          style={[styles.sidebarAction, { borderColor: '#C084FC', backgroundColor: '#FAF5FF' }]}
+          style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' }]}
           onPress={() => {
-            setShowSidebarTemporaria(false);
-            importarBaseInternaEan();
+            setShowMenuLateral(false);
+            setShowResumoTurno(true);
           }}>
-          <Upload size={18} color="#9333EA" />
+          <Activity size={18} color="#2563EB" />
           <View style={styles.sidebarActionTextWrap}>
-            <Text style={[styles.sidebarActionTitle, { color: '#6B21A8' }]}>Importar Base EAN</Text>
-            <Text style={styles.sidebarActionSubtitle}>Atualiza a base interna manualmente</Text>
+            <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Resumo do Turno</Text>
+            <Text style={styles.sidebarActionSubtitle}>Pendências e alertas de vencimento</Text>
           </View>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', marginTop: 12 }]}
           onPress={() => {
-            setShowSidebarTemporaria(false);
+            setShowMenuLateral(false);
             setShowHistorico(true);
           }}>
           <Bell size={18} color="#2563EB" />
@@ -2335,22 +2405,97 @@ return (
             <Text style={styles.sidebarActionSubtitle}>Últimas alterações registradas</Text>
           </View>
         </TouchableOpacity>
+
+        <Text style={[styles.sidebarSectionTitle, { marginTop: 18 }]}>DADOS</Text>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#34D399', backgroundColor: '#ECFDF5' }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            exportarParaExcel();
+          }}>
+          <Download size={18} color="#059669" />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#047857' }]}>Salvar Interno</Text>
+            <Text style={styles.sidebarActionSubtitle}>Exporta relatório XLSX para compartilhar</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#FCD34D', backgroundColor: '#FFFBEB', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            baixarModeloPlanilha();
+          }}>
+          <Download size={18} color="#B45309" />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#92400E' }]}>Baixar Modelo</Text>
+            <Text style={styles.sidebarActionSubtitle}>Gera planilha modelo para importação</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            importarDeExcel();
+          }}>
+          <Upload size={18} color="#2563EB" />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Importar Produtos</Text>
+            <Text style={styles.sidebarActionSubtitle}>Importa CSV/XLSX para o banco local</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#C084FC', backgroundColor: '#FAF5FF', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            importarBaseInternaEan();
+          }}>
+          <Upload size={18} color="#9333EA" />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#6B21A8' }]}>Importar Base EAN</Text>
+            <Text style={styles.sidebarActionSubtitle}>Atualiza a base interna local manualmente</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF', marginTop: 12 }]}
+          onPress={() => {
+            setShowMenuLateral(false);
+            abrirConfiguracoes();
+          }}>
+          <Edit2 size={18} color="#4338CA" />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: '#3730A3' }]}>Configurações</Text>
+            <Text style={styles.sidebarActionSubtitle}>Loja, colaborador e preferências</Text>
+          </View>
+        </TouchableOpacity>
+
+        <Text style={[styles.sidebarSectionTitle, { marginTop: 18, color: theme.muted }]}>SISTEMA</Text>
+        <View style={[styles.sidebarInfoCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+          <Text style={[styles.sidebarInfoLine, { color: theme.text }]}>App: v{VERSAO_APP}</Text>
+          <Text style={[styles.sidebarInfoLine, { color: theme.text }]}>Base interna: {formatarResumoBaseInterna(versaoBaseInternaAtual)}</Text>
+        </View>
+
+        </ScrollView>
       </Animated.View>
     </View>
   </Modal>
 
   {/* MODAL: RESUMO TURNO */}
   <Modal visible={showResumoTurno} transparent={true} animationType="fade">
-    <View style={styles.overlayBottomModal}>
-      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
+    <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
            <View style={{flexDirection:'row', alignItems:'center', gap: 8}}>
              <View style={{backgroundColor:'#EEF0FF', padding:8, borderRadius:12}}><Bell color="#565DF0"/></View>
-             <Text style={styles.dialogTitle}>Resumo do Turno</Text>
+             <Text style={[styles.dialogTitle, { color: theme.title }]}>Resumo do Turno</Text>
            </View>
-           <TouchableOpacity onPress={() => setShowResumoTurno(false)}><X color="#9CA3AF"/></TouchableOpacity>
+           <TouchableOpacity onPress={() => setShowResumoTurno(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
-        <Text style={styles.hintText}>PENDÊNCIAS NA ÁREA DE VENDAS:</Text>
+        <Text style={[styles.hintText, { color: theme.muted }]}>PENDÊNCIAS NA ÁREA DE VENDAS:</Text>
         
         <View style={styles.row}>
            <View style={[styles.resumeCard, {backgroundColor:'#FEF2F2', borderColor:'#FECACA'}]}>
@@ -2363,7 +2508,7 @@ return (
            </View>
         </View>
 
-        <Text style={styles.hintText}>ALERTAS DE VENCIMENTO:</Text>
+        <Text style={[styles.hintText, { color: theme.muted }]}>ALERTAS DE VENCIMENTO:</Text>
         <View style={styles.rowWrap}>
           <View style={[styles.resumeMiniCard, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
             <Text style={[styles.resumeMiniNum, { color: '#1D4ED8' }]}>{qtdVence7}</Text>
@@ -2379,11 +2524,11 @@ return (
           </View>
         </View>
 
-        <Text style={styles.hintText}>RESUMO POR COLABORADOR:</Text>
+        <Text style={[styles.hintText, { color: theme.muted }]}>RESUMO POR COLABORADOR:</Text>
         {resumoPorColaborador.slice(0, 5).map((item) => (
-          <View key={item.colaborador} style={styles.summaryRow}>
-            <Text style={styles.summaryName}>{item.colaborador}</Text>
-            <Text style={styles.summaryMeta}>Qtd {item.qtd} | Risco {item.risco} | Markdown {item.markdown}</Text>
+          <View key={item.colaborador} style={[styles.summaryRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+            <Text style={[styles.summaryName, { color: theme.text }]}>{item.colaborador}</Text>
+            <Text style={[styles.summaryMeta, { color: theme.subtle }]}>Qtd {item.qtd} | Risco {item.risco} | Markdown {item.markdown}</Text>
           </View>
         ))}
       </Animated.View>
@@ -2391,17 +2536,17 @@ return (
   </Modal>
 
   <Modal visible={showFiltrosAvancados} transparent={true} animationType="fade">
-    <View style={styles.overlayModal}>
-      <View style={styles.dialogBox}>
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
-          <Text style={styles.dialogTitle}>Filtros Avançados</Text>
-          <TouchableOpacity onPress={() => setShowFiltrosAvancados(false)}><X color="#9CA3AF"/></TouchableOpacity>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>Filtros Avançados</Text>
+          <TouchableOpacity onPress={() => setShowFiltrosAvancados(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
 
-        <Text style={styles.label}>COLABORADOR</Text>
-        <TextInput style={styles.input} value={filtroColaborador} onChangeText={setFiltroColaborador} placeholder="Filtrar por colaborador" />
+        <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={filtroColaborador} onChangeText={setFiltroColaborador} placeholder="Filtrar por colaborador" placeholderTextColor={theme.muted} />
 
-        <Text style={styles.label}>SETOR</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>SETOR</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
           <View style={styles.quickChipRow}>
             <TouchableOpacity style={[styles.quickChip, !filtroSetor && styles.quickChipActive]} onPress={() => setFiltroSetor('')}>
@@ -2415,7 +2560,7 @@ return (
           </View>
         </ScrollView>
 
-        <Text style={styles.label}>STATUS DE CONFERÊNCIA</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>STATUS DE CONFERÊNCIA</Text>
         <View style={styles.measureOptionsWrap}>
           <TouchableOpacity style={[styles.measureChip, filtroStatusConferencia === 'todos' && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia('todos')}><Text style={[styles.measureChipText, filtroStatusConferencia === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
           {(['pendente', 'conferido', 'resolvido'] as StatusConferencia[]).map((status) => (
@@ -2423,7 +2568,7 @@ return (
           ))}
         </View>
 
-        <Text style={styles.label}>MEDIDA</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>MEDIDA</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
           <View style={styles.quickChipRow}>
             <TouchableOpacity style={[styles.quickChip, filtroUnidadeMedida === 'todos' && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida('todos')}><Text style={[styles.quickChipText, filtroUnidadeMedida === 'todos' && styles.quickChipTextActive]}>Todos</Text></TouchableOpacity>
@@ -2433,7 +2578,7 @@ return (
           </View>
         </ScrollView>
 
-        <Text style={styles.label}>EMBALAGEM</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>EMBALAGEM</Text>
         <View style={styles.measureOptionsWrap}>
           <TouchableOpacity style={[styles.measureChip, filtroEmbalagem === 'todos' && styles.measureChipActive]} onPress={() => setFiltroEmbalagem('todos')}><Text style={[styles.measureChipText, filtroEmbalagem === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
           {(Object.keys(ROTULOS_TIPO_EMBALAGEM) as TipoEmbalagem[]).map((embalagem) => (
@@ -2458,26 +2603,26 @@ return (
   </Modal>
 
   <Modal visible={showHistorico} transparent={true} animationType="fade">
-    <View style={styles.overlayBottomModal}>
-      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
+    <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
-          <Text style={styles.dialogTitle}>Histórico</Text>
-          <TouchableOpacity onPress={() => setShowHistorico(false)}><X color="#9CA3AF"/></TouchableOpacity>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>Histórico</Text>
+          <TouchableOpacity onPress={() => setShowHistorico(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
-        <Text style={styles.label}>PERÍODO</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>PERÍODO</Text>
         <View style={styles.historyDateRangeRow}>
           <View style={styles.historyDateRangeField}>
-            <Text style={styles.historyDateFieldLabel}>Início</Text>
-            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact]} onPress={() => abrirDatePickerHistorico('inicio')}>
-              <Text style={[styles.dateFieldText, !filtroHistoricoDataInicio && styles.dateFieldPlaceholder]}>
+            <Text style={[styles.historyDateFieldLabel, { color: theme.muted }]}>Início</Text>
+            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact, { backgroundColor: theme.inputBg, borderColor: theme.border }]} onPress={() => abrirDatePickerHistorico('inicio')}>
+              <Text style={[styles.dateFieldText, { color: theme.text }, !filtroHistoricoDataInicio && styles.dateFieldPlaceholder, !filtroHistoricoDataInicio && { color: theme.muted }]}>
                 {filtroHistoricoDataInicio ? formataDataBR(filtroHistoricoDataInicio) : 'Data inicial'}
               </Text>
             </TouchableOpacity>
           </View>
           <View style={styles.historyDateRangeField}>
-            <Text style={styles.historyDateFieldLabel}>Fim</Text>
-            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact]} onPress={() => abrirDatePickerHistorico('fim')}>
-              <Text style={[styles.dateFieldText, !filtroHistoricoDataFim && styles.dateFieldPlaceholder]}>
+            <Text style={[styles.historyDateFieldLabel, { color: theme.muted }]}>Fim</Text>
+            <TouchableOpacity style={[styles.dateField, isCompact && styles.dateFieldCompact, { backgroundColor: theme.inputBg, borderColor: theme.border }]} onPress={() => abrirDatePickerHistorico('fim')}>
+              <Text style={[styles.dateFieldText, { color: theme.text }, !filtroHistoricoDataFim && styles.dateFieldPlaceholder, !filtroHistoricoDataFim && { color: theme.muted }]}>
                 {filtroHistoricoDataFim ? formataDataBR(filtroHistoricoDataFim) : 'Data final'}
               </Text>
             </TouchableOpacity>
@@ -2492,7 +2637,7 @@ return (
           </TouchableOpacity>
         ) : null}
 
-        <Text style={styles.label}>TIPO DE PRODUTO</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>TIPO DE PRODUTO</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
           <View style={styles.quickChipRow}>
             <TouchableOpacity style={[styles.quickChip, filtroHistoricoTipo === 'todos' && styles.quickChipActive]} onPress={() => setFiltroHistoricoTipo('todos')}>
@@ -2507,29 +2652,29 @@ return (
         </ScrollView>
         <ScrollView style={styles.historyList}>
           {historicoFiltrado.map((item) => (
-            <View key={item.id} style={styles.historyCard}>
-              <Text style={styles.historyTitle}>{item.acao.toUpperCase()} • {item.nome}</Text>
-              <Text style={styles.historyText}>{item.codigo}</Text>
-              {item.tipo_produto ? <Text style={styles.historyText}>Tipo: {item.tipo_produto}</Text> : null}
-              <Text style={styles.historyText}>{item.detalhes}</Text>
-              <Text style={styles.historyMeta}>{item.colaborador} • {formatarDataHora(item.data_evento)}</Text>
+            <View key={item.id} style={[styles.historyCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+              <Text style={[styles.historyTitle, { color: theme.text }]}>{item.acao.toUpperCase()} • {item.nome}</Text>
+              <Text style={[styles.historyText, { color: theme.subtle }]}>{item.codigo}</Text>
+              {item.tipo_produto ? <Text style={[styles.historyText, { color: theme.subtle }]}>Tipo: {item.tipo_produto}</Text> : null}
+              <Text style={[styles.historyText, { color: theme.subtle }]}>{item.detalhes}</Text>
+              <Text style={[styles.historyMeta, { color: theme.muted }]}>{item.colaborador} • {formatarDataHora(item.data_evento)}</Text>
             </View>
           ))}
-          {historicoFiltrado.length === 0 ? <Text style={styles.hintText}>Nenhum registro encontrado para os filtros selecionados.</Text> : null}
+          {historicoFiltrado.length === 0 ? <Text style={[styles.hintText, { color: theme.muted }]}>Nenhum registro encontrado para os filtros selecionados.</Text> : null}
         </ScrollView>
       </Animated.View>
     </View>
   </Modal>
 
   <Modal visible={showImportPreview} transparent={true} animationType="fade">
-    <View style={styles.overlayBottomModal}>
-      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
+    <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
           <View style={styles.previewHeaderTextWrap}>
-            <Text style={styles.dialogTitle}>Previa da Importacao</Text>
-            <Text style={styles.previewFileName}>{nomeArquivoImportacao}</Text>
+            <Text style={[styles.dialogTitle, { color: theme.title }]}>Previa da Importacao</Text>
+            <Text style={[styles.previewFileName, { color: theme.muted }]}>{nomeArquivoImportacao}</Text>
           </View>
-          <TouchableOpacity onPress={voltarDaSelecaoImportacao}><X color="#9CA3AF"/></TouchableOpacity>
+          <TouchableOpacity onPress={voltarDaSelecaoImportacao}><X color={theme.muted}/></TouchableOpacity>
         </View>
 
         <View style={[styles.previewStatsRow, isCompact && styles.previewStatsRowCompact]}>
@@ -2548,14 +2693,14 @@ return (
         </View>
 
         <TextInput
-          style={[styles.input, styles.previewSearchInput]}
+          style={[styles.input, styles.previewSearchInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
           value={filtroImportPreview}
           onChangeText={setFiltroImportPreview}
           placeholder="Buscar por nome, EAN, apresentacao ou setor"
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={theme.muted}
         />
 
-        <Text style={styles.previewResultText}>
+        <Text style={[styles.previewResultText, { color: theme.muted }]}>
           {itensImportacaoPreviewFiltrados.length} de {itensImportacaoPreview.length} itens visiveis
         </Text>
 
@@ -2565,26 +2710,26 @@ return (
             const estaValido = diasValidade >= 0;
 
             return (
-              <View key={item.id} style={styles.importPreviewCard}>
+              <View key={item.id} style={[styles.importPreviewCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
                 <View style={styles.importPreviewTop}>
-                  <Text style={styles.importPreviewTitle}>{item.nome}</Text>
+                  <Text style={[styles.importPreviewTitle, { color: theme.text }]}>{item.nome}</Text>
                   <View style={[styles.importPreviewBadge, estaValido ? styles.importPreviewBadgeOk : styles.importPreviewBadgeExpired]}>
                     <Text style={[styles.importPreviewBadgeText, estaValido ? styles.importPreviewBadgeTextOk : styles.importPreviewBadgeTextExpired]}>
                       {estaValido ? 'Dentro da validade' : 'Vencido'}
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.importPreviewMeta}>EAN: {item.codigo}</Text>
-                <Text style={styles.importPreviewMeta}>Validade: {formataDataBR(item.validade)}</Text>
-                {item.apresentacao ? <Text style={styles.importPreviewMeta}>Apresentacao: {item.apresentacao}</Text> : null}
+                <Text style={[styles.importPreviewMeta, { color: theme.subtle }]}>EAN: {item.codigo}</Text>
+                <Text style={[styles.importPreviewMeta, { color: theme.subtle }]}>Validade: {formataDataBR(item.validade)}</Text>
+                {item.apresentacao ? <Text style={[styles.importPreviewMeta, { color: theme.subtle }]}>Apresentacao: {item.apresentacao}</Text> : null}
               </View>
             );
           })}
           {itensImportacaoPreviewFiltrados.length === 0 ? (
-            <Text style={styles.hintText}>Nenhum item encontrado para esse filtro.</Text>
+            <Text style={[styles.hintText, { color: theme.muted }]}>Nenhum item encontrado para esse filtro.</Text>
           ) : null}
           {itensImportacaoPreviewFiltrados.length > 30 ? (
-            <Text style={styles.hintText}>Mostrando os primeiros 30 itens do resultado filtrado.</Text>
+            <Text style={[styles.hintText, { color: theme.muted }]}>Mostrando os primeiros 30 itens do resultado filtrado.</Text>
           ) : null}
         </ScrollView>
 
@@ -2615,11 +2760,11 @@ return (
   </Modal>
 
   <Modal visible={showDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
-    <View style={styles.overlayModal}>
-      <View style={styles.datePickerDialog}>
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
-          <Text style={styles.dialogTitle}>Selecionar validade</Text>
-          <TouchableOpacity onPress={() => setShowDatePicker(false)}><X color="#9CA3AF"/></TouchableOpacity>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>Selecionar validade</Text>
+          <TouchableOpacity onPress={() => setShowDatePicker(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataValidadeSelecionada}
@@ -2644,11 +2789,11 @@ return (
   ) : null}
 
   <Modal visible={showHistoricoDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
-    <View style={styles.overlayModal}>
-      <View style={styles.datePickerDialog}>
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
         <View style={styles.dialogHeader}>
-          <Text style={styles.dialogTitle}>{alvoDatePickerHistorico === 'inicio' ? 'Data inicial' : 'Data final'}</Text>
-          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X color="#9CA3AF"/></TouchableOpacity>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>{alvoDatePickerHistorico === 'inicio' ? 'Data inicial' : 'Data final'}</Text>
+          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X color={theme.muted}/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataHistoricoSelecionada}
@@ -2701,7 +2846,6 @@ badgesWrap: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6, 
 badgesWrapCompact: { marginTop: 8 },
 badgeTop: { backgroundColor: '#1E205B', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 badgeTopText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-btnIconEdit: { backgroundColor: 'rgba(255,255,255,0.1)', padding: 4, borderRadius: 12 },
 
 colabBox: { backgroundColor: '#1E205B', padding: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 colabBoxCompact: { width: '100%' },
@@ -2840,14 +2984,19 @@ configToggleThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '
 configToggleThumbActive: { alignSelf: 'flex-end' },
 sidebarOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.35)', flexDirection: 'row', justifyContent: 'flex-end' },
 sidebarBackdrop: { flex: 1 },
-sidebarPanel: { width: '82%', maxWidth: 340, backgroundColor: '#FFFFFF', padding: 20, paddingTop: 56, shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 12 },
+sidebarPanel: { width: '82%', maxWidth: 340, backgroundColor: '#FFFFFF', padding: 20, paddingTop: 56, shadowColor: '#000', shadowOffset: { width: -2, height: 0 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 12, maxHeight: '100%' },
 sidebarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
 sidebarTitle: { color: '#111827', fontSize: 20, fontWeight: '900', textTransform: 'uppercase' },
 sidebarSubtitle: { color: '#6B7280', fontSize: 12, fontWeight: '600', marginTop: 4 },
+sidebarScroll: { flexGrow: 0 },
+sidebarScrollContent: { paddingBottom: 28 },
+sidebarSectionTitle: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.8, marginBottom: 10 },
 sidebarAction: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 18, padding: 14 },
 sidebarActionTextWrap: { flex: 1 },
 sidebarActionTitle: { fontSize: 14, fontWeight: '900', textTransform: 'uppercase' },
 sidebarActionSubtitle: { color: '#6B7280', fontSize: 12, fontWeight: '600', marginTop: 2 },
+sidebarInfoCard: { marginTop: 2, borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 6 },
+sidebarInfoLine: { color: '#334155', fontSize: 12, fontWeight: '700' },
 btnDialogAction: { backgroundColor: '#565DF0', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24 },
 btnDialogActionCompact: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 12 },
 btnDialogActionText: { color: '#fff', fontWeight: '900', fontSize: 14, textTransform: 'uppercase' },

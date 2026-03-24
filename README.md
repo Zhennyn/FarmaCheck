@@ -537,7 +537,7 @@ Este projeto é código aberto sob licença MIT. Sinta-se livre para usar, modif
 
 Desenvolvido com ❤️ para farmácias e lojas que desejam melhorar gestão de validade.
 
-**Versão:** 1.0.0  
+**Versão:** 1.0.2  
 **Data:** Março 2026  
 **Framework:** React Native + Expo
 
