@@ -3,14 +3,16 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
+import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
 import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Dimensions, Easing, FlatList, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
+import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as XLSX from 'xlsx';
 import baseInternaEmbutida from '../../assets/data/anvisa-base.json';
@@ -137,6 +139,13 @@ const ROTULOS_STATUS_CONFERENCIA: Record<StatusConferencia, string> = {
 
 const SETORES_PADRAO = ['Balcao', 'Gondola', 'Geladeira', 'Controlados', 'Estoque'];
 
+const ONBOARDING_STEPS = [
+  { emoji: '💊', titulo: 'Bem-vindo ao App de Validade', descricao: 'Gerencie a validade dos produtos da sua loja com facilidade. Evite perdas e mantenha a equipe sempre sincronizada.' },
+  { emoji: '📷', titulo: 'Cadastre Produtos', descricao: 'Escaneie o EAN com a câmera ou pesquise na base ANVISA. Preencha a validade, quantidade e medida.' },
+  { emoji: '👆', titulo: 'Deslize para Gerenciar', descricao: 'Na lista principal, deslize um produto para a esquerda para revelar os botões de editar e excluir rapidamente.' },
+  { emoji: '📊', titulo: 'Relatórios e Conferência', descricao: 'Use o menu lateral (ícone de loja) para exportar PDF, ver gráficos de vencimento ou fazer conferência rápida por scan.' },
+];
+
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
 const VERSAO_APP = '1.0.2';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
@@ -145,6 +154,8 @@ const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
 const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const CHAVE_MODO_TEMA = '@modo_tema';
+const CHAVE_SETORES_PERSONALIZADOS = '@setores_personalizados';
+const CHAVE_ONBOARDING_CONCLUIDO = '@onboarding_v1';
 const TIPOS_PLANILHA = [
   'text/csv',
   'text/plain',
@@ -427,6 +438,14 @@ const [showGraficoStatus, setShowGraficoStatus] = useState(false);
 const [codigoScanConferencia, setCodigoScanConferencia] = useState('');
 const [exportandoPdf, setExportandoPdf] = useState(false);
 const [produtoSwipeado, setProdutoSwipeado] = useState<string | null>(null);
+const [refreshing, setRefreshing] = useState(false);
+const [showOnboarding, setShowOnboarding] = useState(false);
+const [onboardingStep, setOnboardingStep] = useState(0);
+const [setoresDisponiveis, setSetoresDisponiveis] = useState<string[]>(SETORES_PADRAO);
+const [tempSetores, setTempSetores] = useState<string[]>([]);
+const [tempNovoSetor, setTempNovoSetor] = useState('');
+const swipeRefs = useRef<Record<string, Swipeable | null>>({});
+const swipeAbertoRef = useRef<string | null>(null);
 
 const ultimoCodigoBuscado = useRef('');
 const cacheEanMemoria = useRef<Record<string, CadastroEan>>({});
@@ -725,6 +744,20 @@ const registros = await db.getAllAsync('SELECT * FROM historico_produtos ORDER B
 setHistorico(registros);
 }, [abrirBanco]);
 
+const recarregarProdutos = useCallback(async () => {
+setRefreshing(true);
+try {
+  const db = await abrirBanco();
+  const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
+  setProdutos(todosProdutos);
+  await carregarHistorico();
+} catch (error) {
+  console.log('Erro ao recarregar produtos:', error);
+} finally {
+  setRefreshing(false);
+}
+}, [abrirBanco, carregarHistorico]);
+
 const registrarHistorico = useCallback(async (entrada: Omit<HistoricoRegistro, 'id' | 'data_evento'>, dbAtual?: BancoDados) => {
 const db = dbAtual || await abrirBanco();
 await db.runAsync(
@@ -844,6 +877,7 @@ const r = await AsyncStorage.getItem('@regional');
 const c = await AsyncStorage.getItem('@colaborador');
 const autoExcluir = await AsyncStorage.getItem(CHAVE_AUTO_EXCLUIR_VENCIDOS);
 const modoTema = await AsyncStorage.getItem(CHAVE_MODO_TEMA);
+const setoresSalvos = await AsyncStorage.getItem(CHAVE_SETORES_PERSONALIZADOS);
 if (l) setLoja(l);
 if (r) setRegional(r);
 if (c) setColaborador(c);
@@ -851,6 +885,9 @@ setAutoExcluirVencidos(autoExcluir === 'true');
 if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
   setThemePreference(modoTema);
   setTempThemePreference(modoTema);
+}
+if (setoresSalvos) {
+  try { setSetoresDisponiveis(JSON.parse(setoresSalvos)); } catch {}
 }
 
   // 2. Inicializar Banco de Dados (SQLite)
@@ -929,6 +966,8 @@ if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
   const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
   setProdutos(todosProdutos);
   await carregarHistorico();
+  const onboardingConcluido = await AsyncStorage.getItem(CHAVE_ONBOARDING_CONCLUIDO);
+  if (!onboardingConcluido) setShowOnboarding(true);
   
 } catch (error) {
   const mensagem = error instanceof Error ? error.message : 'Não foi possível inicializar a base de dados SQLite.';
@@ -957,8 +996,10 @@ setTempRegional(regional);
 setTempColaborador(colaborador);
 setTempAutoExcluirVencidos(autoExcluirVencidos);
 setTempThemePreference(themePreference);
+setTempSetores(setoresDisponiveis);
+setTempNovoSetor('');
 setShowConfig(true);
-}, [autoExcluirVencidos, colaborador, loja, regional, themePreference]);
+}, [autoExcluirVencidos, colaborador, loja, regional, setoresDisponiveis, themePreference]);
 
 const salvarConfiguracoes = async () => {
 try {
@@ -967,11 +1008,13 @@ await AsyncStorage.setItem('@regional', tempRegional.toUpperCase());
 await AsyncStorage.setItem('@colaborador', tempColaborador);
 await AsyncStorage.setItem(CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false');
 await AsyncStorage.setItem(CHAVE_MODO_TEMA, tempThemePreference);
+await AsyncStorage.setItem(CHAVE_SETORES_PERSONALIZADOS, JSON.stringify(tempSetores));
 setLoja(tempLoja.toUpperCase());
 setRegional(tempRegional.toUpperCase());
 setColaborador(tempColaborador);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
 setThemePreference(tempThemePreference);
+setSetoresDisponiveis(tempSetores);
 setShowConfig(false);
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
@@ -1614,8 +1657,8 @@ const persistir = async () => {
     const qtdNum = parseInt(novaQtd, 10) || 1;
     const quantidadeMedidaNum = parseNumeroMedida(novaQuantidadeMedida);
     const embalagemFinal = novaEmbalagem || inferirTipoEmbalagem(novaApresentacao) || '';
-    const setorFinal = '';
-    const loteFinal = '';
+    const setorFinal = novoSetor.trim();
+    const loteFinal = novoLote.trim();
     const observacaoFinal = novaObservacao.trim();
     const validadeNormalizada = normalizarDataISO(novaValidade);
 
@@ -2068,8 +2111,46 @@ const exportarResumoPdfComTimestamp = useCallback(async () => {
   }
 }, [exportandoPdf, loja, regional, colaborador, totalQtdAuditada, qtdRiscoImediato, qtdMarkdown, produtosFiltrados.length, resumoPorColaborador, exibirNotificacao]);
 
+const renderAcoesSwipeDireita = useCallback((produto: ProdutoComAnalise) => (
+  <View style={styles.swipeActionsWrap}>
+    <TouchableOpacity style={[styles.swipeActionBtn, styles.swipeActionEdit]} onPress={() => iniciarEdicao(produto)}>
+      <View style={styles.swipeIconBubbleEdit}><Edit2 size={16} /></View>
+      <Text style={[styles.swipeActionText, styles.swipeActionTextEdit]}>Editar</Text>
+    </TouchableOpacity>
+    <TouchableOpacity style={[styles.swipeActionBtn, styles.swipeActionDelete]} onPress={() => removerProduto(produto.id)}>
+      <View style={styles.swipeIconBubbleDelete}><Trash2 size={16} /></View>
+      <Text style={[styles.swipeActionText, styles.swipeActionTextDelete]}>Excluir</Text>
+    </TouchableOpacity>
+  </View>
+), [iniciarEdicao, removerProduto]);
+
 const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => (
-  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+  <Swipeable
+    ref={(instancia) => {
+      swipeRefs.current[p.id] = instancia;
+    }}
+    overshootRight={false}
+    rightThreshold={36}
+    friction={2}
+    overshootFriction={8}
+    renderRightActions={() => renderAcoesSwipeDireita(p)}
+    onSwipeableWillOpen={() => {
+      const outroAberto = swipeAbertoRef.current;
+      if (outroAberto && outroAberto !== p.id) {
+        swipeRefs.current[outroAberto]?.close();
+      }
+      swipeAbertoRef.current = p.id;
+      setProdutoSwipeado(p.id);
+      void Haptics.selectionAsync();
+    }}
+    onSwipeableOpen={() => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }}
+    onSwipeableClose={() => {
+      if (swipeAbertoRef.current === p.id) swipeAbertoRef.current = null;
+      setProdutoSwipeado((atual) => (atual === p.id ? null : atual));
+    }}>
+  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }, produtoSwipeado === p.id && styles.cardProdutoSwipeOpen]}>
     <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
       <View style={styles.cardHeaderInfo}>
         <Text style={[styles.prodNome, { color: theme.text }]}>{p.nome}</Text>
@@ -2091,10 +2172,6 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
           </View>
         ) : null}
       </View>
-      <View style={[styles.actions, isCompact && styles.actionsCompact]}>
-        <TouchableOpacity onPress={() => iniciarEdicao(p)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Edit2 size={18}/></TouchableOpacity>
-        <TouchableOpacity onPress={() => removerProduto(p.id)} style={[styles.actionBtn, { backgroundColor: theme.actionBg, borderColor: theme.border }]}><Trash2 size={18}/></TouchableOpacity>
-      </View>
     </View>
 
     <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
@@ -2108,12 +2185,13 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
         <Text style={[styles.statusDateValue, { color: p.statusValidade.cor }]}>{formataDataBR(p.validade)}</Text>
       </View>
       <View style={styles.statusBigTag}>
-        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} style={{marginRight: 4}}/>}
+        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} />}
         <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor }]}>{p.statusValidade.label}</Text>
       </View>
     </View>
   </View>
-), [iniciarEdicao, isCompact, isTablet, removerProduto, theme.actionBg, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
+  </Swipeable>
+), [isCompact, isTablet, produtoSwipeado, renderAcoesSwipeDireita, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
 
 const renderListaHeader = (
   <>
@@ -2154,7 +2232,7 @@ const renderListaHeader = (
          </TouchableOpacity>
       </View>
       <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Search size={18} style={{marginLeft: 12}} />
+        <Search size={18} />
         <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar por nome ou EAN..." placeholderTextColor={theme.muted} value={termoBusca} onChangeText={setTermoBusca} />
       </View>
       <View style={styles.filterRow}>
@@ -2171,6 +2249,21 @@ const renderListaHeader = (
           <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
         </TouchableOpacity>
       </View>
+      {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0) && (
+        <TouchableOpacity
+          style={styles.clearFiltersBtn}
+          onPress={() => {
+            setFiltroValidade('todos');
+            setFiltroColaborador('');
+            setFiltroSetor('');
+            setFiltroStatusConferencia('todos');
+            setFiltroUnidadeMedida('todos');
+            setFiltroEmbalagem('todos');
+          }}>
+          <X size={13} />
+          <Text style={styles.clearFiltersBtnText}>Limpar filtros</Text>
+        </TouchableOpacity>
+      )}
     </View>
   </>
 );
@@ -2329,6 +2422,9 @@ return (
     initialNumToRender={10}
     maxToRenderPerBatch={12}
     windowSize={7}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={recarregarProdutos} colors={['#565DF0']} tintColor="#565DF0" />
+    }
   />
 
   {/* FAB - Botão Flutuante */}
@@ -2411,7 +2507,7 @@ return (
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.btnSalvar, {backgroundColor: editandoId ? '#F97316' : '#565DF0'}]} onPress={salvarProduto}>
-          <Check style={{marginRight: 8}} size={24}/>
+          <Check size={24}/>
           <Text style={styles.btnSalvarText}>{editandoId ? 'Atualizar DB' : 'Gravar no SQLite'}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -2469,6 +2565,51 @@ return (
               </TouchableOpacity>
             );
           })}
+        </View>
+
+        <Text style={[styles.label, { color: theme.muted }]}>SETORES PERSONALIZADOS</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
+          <View style={styles.quickChipRow}>
+            {tempSetores.map((setor) => (
+              <TouchableOpacity
+                key={setor}
+                style={[styles.quickChip, { flexDirection: 'row', alignItems: 'center', gap: 5 }]}
+                onPress={() => setTempSetores((prev) => prev.filter((s) => s !== setor))}>
+                <Text style={styles.quickChipText}>{setor}</Text>
+                <X size={11} />
+              </TouchableOpacity>
+            ))}
+            {tempSetores.length === 0 && (
+              <Text style={[styles.quickChipText, { color: theme.muted, lineHeight: 32 }]}>Nenhum setor cadastrado</Text>
+            )}
+          </View>
+        </ScrollView>
+        <View style={[styles.row, { gap: 8, marginTop: 6, marginBottom: 4 }]}>
+          <TextInput
+            style={[styles.input, { flex: 1, marginTop: 0, backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+            value={tempNovoSetor}
+            onChangeText={setTempNovoSetor}
+            placeholder="Adicionar setor..."
+            placeholderTextColor={theme.muted}
+            onSubmitEditing={() => {
+              const nome = tempNovoSetor.trim();
+              if (nome && !tempSetores.includes(nome)) {
+                setTempSetores((prev) => [...prev, nome]);
+                setTempNovoSetor('');
+              }
+            }}
+          />
+          <TouchableOpacity
+            style={{ backgroundColor: '#565DF0', paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => {
+              const nome = tempNovoSetor.trim();
+              if (nome && !tempSetores.includes(nome)) {
+                setTempSetores((prev) => [...prev, nome]);
+                setTempNovoSetor('');
+              }
+            }}>
+            <Plus size={20} />
+          </TouchableOpacity>
         </View>
 
         <Text style={[styles.label, { color: theme.muted }]}>EXCLUSÃO AUTOMÁTICA</Text>
@@ -2723,7 +2864,7 @@ return (
             <TouchableOpacity style={[styles.quickChip, !filtroSetor && styles.quickChipActive]} onPress={() => setFiltroSetor('')}>
               <Text style={[styles.quickChipText, !filtroSetor && styles.quickChipTextActive]}>Todos</Text>
             </TouchableOpacity>
-            {SETORES_PADRAO.map((setor) => (
+            {setoresDisponiveis.map((setor) => (
               <TouchableOpacity key={setor} style={[styles.quickChip, filtroSetor === setor && styles.quickChipActive]} onPress={() => setFiltroSetor(setor)}>
                 <Text style={[styles.quickChipText, filtroSetor === setor && styles.quickChipTextActive]}>{setor}</Text>
               </TouchableOpacity>
@@ -2979,6 +3120,71 @@ return (
     </View>
   </Modal>
 
+  {/* MODAL: ONBOARDING */}
+  <Modal visible={showOnboarding} animationType="fade">
+    <SafeAreaView style={[styles.container, { backgroundColor: '#1A1C5A' }]}>
+      <View style={{ flex: 1, padding: 28, justifyContent: 'space-between' }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 72, marginBottom: 28 }}>{ONBOARDING_STEPS[onboardingStep].emoji}</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 16, lineHeight: 30 }}>
+            {ONBOARDING_STEPS[onboardingStep].titulo}
+          </Text>
+          <Text style={{ color: '#94A3B8', fontSize: 15, textAlign: 'center', lineHeight: 24, fontWeight: '600' }}>
+            {ONBOARDING_STEPS[onboardingStep].descricao}
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+          {ONBOARDING_STEPS.map((_, i) => (
+            <View
+              key={i}
+              style={{
+                width: i === onboardingStep ? 24 : 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: i === onboardingStep ? '#565DF0' : '#334155',
+              }}
+            />
+          ))}
+        </View>
+
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity
+            style={{ backgroundColor: '#565DF0', padding: 18, borderRadius: 16, alignItems: 'center' }}
+            onPress={async () => {
+              if (onboardingStep < ONBOARDING_STEPS.length - 1) {
+                setOnboardingStep((s) => s + 1);
+              } else {
+                await AsyncStorage.setItem(CHAVE_ONBOARDING_CONCLUIDO, 'ok');
+                setShowOnboarding(false);
+              }
+            }}>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16, textTransform: 'uppercase' }}>
+              {onboardingStep < ONBOARDING_STEPS.length - 1 ? 'Próximo' : 'Começar'}
+            </Text>
+          </TouchableOpacity>
+
+          {onboardingStep > 0 ? (
+            <TouchableOpacity
+              style={{ padding: 14, alignItems: 'center' }}
+              onPress={() => setOnboardingStep((s) => s - 1)}>
+              <Text style={{ color: '#64748B', fontWeight: '700', fontSize: 14 }}>Anterior</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={{ padding: 14, alignItems: 'center' }}
+              onPress={async () => {
+                await AsyncStorage.setItem(CHAVE_ONBOARDING_CONCLUIDO, 'ok');
+                setShowOnboarding(false);
+              }}>
+              <Text style={{ color: '#64748B', fontWeight: '700', fontSize: 14 }}>Pular</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </SafeAreaView>
+  </Modal>
+
   {/* MODAL: MODO CONFERÊNCIA RÁPIDA */}
   <Modal visible={showModoConferencia} transparent={true} animationType="slide">
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -3171,6 +3377,8 @@ filterChipDanger: { backgroundColor: '#FEE2E2' },
 filterChipText: { color: '#4B5563', fontWeight: '800', fontSize: 13 },
 filterChipTextActive: { color: '#1D4ED8' },
 filterChipDangerText: { color: '#B91C1C' },
+clearFiltersBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 8, backgroundColor: '#FEE2E2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: '#FECACA' },
+clearFiltersBtnText: { color: '#B91C1C', fontSize: 12, fontWeight: '800' },
 quickChipScroll: { marginBottom: 8 },
 quickChipRow: { flexDirection: 'row', gap: 8 },
 quickChip: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
@@ -3179,7 +3387,17 @@ quickChipText: { color: '#4B5563', fontSize: 12, fontWeight: '800' },
 quickChipTextActive: { color: '#1D4ED8' },
 
 cardProduto: { backgroundColor: '#fff', borderRadius: 24, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+cardProdutoSwipeOpen: { borderColor: '#93C5FD' },
 cardProdutoWide: { padding: 20 },
+swipeActionsWrap: { width: 170, marginBottom: 16, marginLeft: 10, flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+swipeActionBtn: { flex: 1, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 6, borderWidth: 1 },
+swipeActionEdit: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+swipeActionDelete: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+swipeIconBubbleEdit: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center' },
+swipeIconBubbleDelete: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center' },
+swipeActionText: { fontSize: 11, fontWeight: '800', color: '#374151' },
+swipeActionTextEdit: { color: '#1D4ED8' },
+swipeActionTextDelete: { color: '#B91C1C' },
 cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
 cardTopCompact: { flexDirection: 'column', gap: 12 },
 cardHeaderInfo: { flex: 1 },

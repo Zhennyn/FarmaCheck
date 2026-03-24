@@ -1,112 +1,129 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-export default function TabTwoScreen() {
+const GUIA = [
+  {
+    emoji: '\u2795',
+    titulo: 'Cadastrar Produtos',
+    passos: [
+      'Toque no bot\u00e3o azul (+) no canto inferior direito',
+      'Escaneie o c\u00f3digo EAN ou digite manualmente',
+      'O nome \u00e9 buscado automaticamente na base ANVISA',
+      'Preencha validade, quantidade, setor e medida',
+      'Toque em \"Gravar no SQLite\"',
+    ],
+  },
+  {
+    emoji: '\ud83d\udc46',
+    titulo: 'Editar / Excluir',
+    passos: [
+      'Na lista, deslize o card do produto para a esquerda',
+      'Bot\u00e3o azul = Editar | Bot\u00e3o vermelho = Excluir',
+      'S\u00f3 um slide pode estar aberto por vez (fecha o anterior)',
+    ],
+  },
+  {
+    emoji: '\ud83d\udd0d',
+    titulo: 'Filtrar a Lista',
+    passos: [
+      'Use os chips r\u00e1pidos: Todos, No Prazo, Pr\u00f3ximos, Vencidos',
+      'Toque em \"Filtros Avan\u00e7ados\" para filtrar por setor, colaborador ou status',
+      'Quando h\u00e1 filtro ativo aparece o bot\u00e3o \u201cLimpar filtros\u201d em vermelho',
+    ],
+  },
+  {
+    emoji: '\u2630',
+    titulo: 'Menu Lateral',
+    passos: [
+      'Toque no \u00edcone de loja (canto superior esquerdo)',
+      'Resumo do Turno: vis\u00e3o geral de vencimentos pendentes',
+      'Confer\u00eancia R\u00e1pida: scan simplificado com checklist',
+      'Gr\u00e1fico de Status: distribui\u00e7\u00e3o visual dos vencimentos',
+      'Exportar PDF: relat\u00f3rio completo com timestamp',
+    ],
+  },
+  {
+    emoji: '\u2699\ufe0f',
+    titulo: 'Configura\u00e7\u00f5es',
+    passos: [
+      'Menu Lateral > Defini\u00e7\u00f5es',
+      'Configure loja, regional e nome do colaborador',
+      'Personalize os setores dispon\u00edveis no cadastro',
+      'Escolha o tema: Sistema, Claro ou Escuro',
+      'Importe produtos via planilha CSV / XLSX',
+    ],
+  },
+];
+
+export default function ComoUsarScreen() {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <ThemedView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerBox}>
+          <Text style={styles.headerTitle}>COMO USAR</Text>
+          <Text style={styles.headerSub}>App de Auditoria de Validade v1.0.2</Text>
+        </View>
+
+        {GUIA.map((item) => (
+          <View key={item.titulo} style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {item.emoji}\u2002{item.titulo}
+            </Text>
+            {item.passos.map((passo, i) => (
+              <View key={i} style={styles.stepRow}>
+                <View style={styles.stepDot} />
+                <Text style={styles.stepText}>{passo}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Desenvolvido para auditoria de validade de produtos farmac\u00eauticos.</Text>
+          <Text style={styles.footerVersion}>v1.0.2 \u2022 2026</Text>
+        </View>
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 48 },
+  headerBox: {
+    backgroundColor: '#1A1C5A',
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 20,
+    alignItems: 'center',
   },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 2,
+    fontFamily: Fonts.rounded,
   },
+  headerSub: { color: '#94A3B8', fontSize: 13, fontWeight: '600', marginTop: 6 },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+  },
+  cardTitle: { fontSize: 15, fontWeight: '900', color: '#1A1C5A', marginBottom: 12 },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+  stepDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#565DF0', marginTop: 6, flexShrink: 0 },
+  stepText: { flex: 1, color: '#475569', fontSize: 13, fontWeight: '600', lineHeight: 20 },
+  footer: { alignItems: 'center', marginTop: 8, gap: 4 },
+  footerText: { color: '#94A3B8', fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  footerVersion: { color: '#CBD5E1', fontSize: 11, fontWeight: '700' },
 });
