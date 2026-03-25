@@ -2339,7 +2339,7 @@ return (
 <LinearGradient colors={['#151B54', '#2A3492', '#3B42CC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.splashLoadingWrap}>
   <View style={styles.splashGlowOrb} />
   <View style={styles.splashBrandCard}>
-    <Image source={require('../../assets/images/android-icon-foreground.png')} style={styles.splashBrandLogo} resizeMode="contain" />
+    <Image source={require('../../assets/images/farmacheck.png')} style={styles.splashBrandLogo} resizeMode="contain" />
     <Text style={styles.splashBrandTitle}>FarmaCheck</Text>
   </View>
   <ActivityIndicator size="small" color="#E2E8F0" />

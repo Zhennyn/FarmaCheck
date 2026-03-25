@@ -2,18 +2,6 @@
 
 Aplicativo mobile em Expo e React Native para auditoria de validade de produtos, com foco em operação de farmácia e loja.
 
-## Screenshots
-
-> Para adicionar screenshots reais: rode o app com `npx expo start`, abra no celular/emulador, tire print e salve em `assets/images/screenshots/`.
-
-| Tela Principal | Menu Lateral | Onboarding |
-|:-:|:-:|:-:|
-| ![Lista de produtos](assets/images/screenshots/lista.png) | ![Menu lateral](assets/images/screenshots/menu.png) | ![Onboarding](assets/images/screenshots/onboarding.png) |
-
-| Conferência Rápida | Gráfico de Status | Como Usar |
-|:-:|:-:|:-:|
-| ![Conferência](assets/images/screenshots/conferencia.png) | ![Gráfico](assets/images/screenshots/grafico.png) | ![Como Usar](assets/images/screenshots/como-usar.png) |
-
 O projeto trabalha com:
 - cadastro rápido de produtos com validade
 - leitura de EAN pela câmera
