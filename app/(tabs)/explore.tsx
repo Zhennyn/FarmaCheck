@@ -10,7 +10,7 @@ const GUIA = [
       'Toque no bot\u00e3o azul (+) no canto inferior direito',
       'Escaneie o c\u00f3digo EAN ou digite manualmente',
       'O nome \u00e9 buscado automaticamente na base ANVISA',
-      'Preencha validade, quantidade, setor e medida',
+      'Preencha validade, quantidade e medida',
       'Toque em \"Gravar no SQLite\"',
     ],
   },

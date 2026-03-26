@@ -28,10 +28,10 @@ type Produto = {
   unidade_medida?: UnidadeMedida;
   quantidade_medida?: number;
   validade: string;
+  validades_adicionais?: string;
   custo: number;
   qtd: number;
   colaborador: string;
-  setor?: string;
   lote?: string;
   observacao?: string;
   status_conferencia?: StatusConferencia;
@@ -138,7 +138,7 @@ const ROTULOS_STATUS_CONFERENCIA: Record<StatusConferencia, string> = {
   resolvido: 'resolvido',
 };
 
-const SETORES_PADRAO = ['Balcao', 'Gondola', 'Geladeira', 'Controlados', 'Estoque'];
+
 
 const ONBOARDING_STEPS = [
   { emoji: '💊', titulo: 'Bem-vindo ao App de Validade', descricao: 'Gerencie a validade dos produtos da sua loja com facilidade. Evite perdas e mantenha a equipe sempre sincronizada.' },
@@ -148,14 +148,15 @@ const ONBOARDING_STEPS = [
 ];
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
-const VERSAO_APP = '1.0.2';
+const VERSAO_APP = '1.0.3';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
 const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
 const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const CHAVE_MODO_TEMA = '@modo_tema';
-const CHAVE_SETORES_PERSONALIZADOS = '@setores_personalizados';
+const CHAVE_MODO_ACESSIBILIDADE = '@modo_acessibilidade';
+
 const CHAVE_ONBOARDING_CONCLUIDO = '@onboarding_v1';
 const TIPOS_PLANILHA = [
   'text/csv',
@@ -173,7 +174,7 @@ const ALIASES_VALIDADE_PRODUTO = ['validade', 'data_validade', 'dt_validade', 'v
 const ALIASES_APRESENTACAO = ['apresentacao', 'apresentacao_comercial', 'descricao_apresentacao'];
 const ALIASES_QUANTIDADE = ['quantidade', 'qtd', 'estoque'];
 const ALIASES_COLABORADOR = ['colaborador', 'responsavel', 'usuario'];
-const ALIASES_SETOR = ['setor', 'secao', 'categoria_setor'];
+
 const ALIASES_LOTE = ['lote', 'batch'];
 const ALIASES_OBSERVACAO = ['observacao', 'obs', 'anotacao'];
 const ALIASES_EMBALAGEM = ['embalagem', 'tipo_embalagem', 'frasco_bisnaga'];
@@ -355,7 +356,22 @@ const theme = useMemo(() => ({
   overlay: isDark ? 'rgba(2,6,23,0.82)' : 'rgba(26, 28, 90, 0.8)',
   bottomOverlay: isDark ? 'rgba(2,6,23,0.72)' : 'rgba(26, 28, 90, 0.5)',
   sidebarOverlay: isDark ? 'rgba(2,6,23,0.5)' : 'rgba(15, 23, 42, 0.35)',
+  cardBg: isDark ? '#1F2937' : '#F3F4F6',
 }), [isDark]);
+
+const [modoAcessibilidade, setModoAcessibilidade] = useState(false);
+const a11y = useMemo(() => ({
+  fNome: modoAcessibilidade ? 24 : 18,
+  fStatus: modoAcessibilidade ? 21 : 16,
+  fStatusTag: modoAcessibilidade ? 16 : 12,
+  fInfoValue: modoAcessibilidade ? 22 : 18,
+  fLabel: modoAcessibilidade ? 14 : 12,
+  fInput: modoAcessibilidade ? 19 : 16,
+  fBtnSalvar: modoAcessibilidade ? 19 : 16,
+  cardPad: modoAcessibilidade ? 22 : 16,
+  inputPad: modoAcessibilidade ? 20 : 16,
+  iconSize: modoAcessibilidade ? 20 : 14,
+}), [modoAcessibilidade]);
 
 // ==========================================
 // ESTADOS GLOBAIS
@@ -376,7 +392,6 @@ const [versaoBaseInternaAtual, setVersaoBaseInternaAtual] = useState('');
 const [termoBusca, setTermoBusca] = useState('');
 const [filtroValidade, setFiltroValidade] = useState<TipoFiltro>('todos');
 const [filtroColaborador, setFiltroColaborador] = useState('');
-const [filtroSetor, setFiltroSetor] = useState('');
 const [filtroStatusConferencia, setFiltroStatusConferencia] = useState<StatusConferencia | 'todos'>('todos');
 const [filtroUnidadeMedida, setFiltroUnidadeMedida] = useState<UnidadeMedida | 'todos'>('todos');
 const [filtroEmbalagem, setFiltroEmbalagem] = useState<TipoEmbalagem | 'todos'>('todos');
@@ -409,6 +424,8 @@ const opacidadePainelModal = useRef(new Animated.Value(0)).current;
 // DATE PICKER
 const [showDatePicker, setShowDatePicker] = useState(false);
 const [dataValidadeSelecionada, setDataValidadeSelecionada] = useState(new Date());
+const [showDatePickerAdicional, setShowDatePickerAdicional] = useState(false);
+const [dataValidadeAdicionalSelecionada, setDataValidadeAdicionalSelecionada] = useState(new Date());
 const [showHistoricoDatePicker, setShowHistoricoDatePicker] = useState(false);
 const [dataHistoricoSelecionada, setDataHistoricoSelecionada] = useState(new Date());
 const [alvoDatePickerHistorico, setAlvoDatePickerHistorico] = useState<'inicio' | 'fim'>('inicio');
@@ -421,8 +438,9 @@ const [novaEmbalagem, setNovaEmbalagem] = useState<TipoEmbalagem | ''>('');
 const [novaUnidadeMedida, setNovaUnidadeMedida] = useState<UnidadeMedida>('unidades');
 const [novaQuantidadeMedida, setNovaQuantidadeMedida] = useState('');
 const [novaValidade, setNovaValidade] = useState('');
+const [novasValidadesAdicionais, setNovasValidadesAdicionais] = useState<string[]>([]);
+const [novaValidadeAdicionada, setNovaValidadeAdicionada] = useState('');
 const [novaQtd, setNovaQtd] = useState('');
-const [novoSetor, setNovoSetor] = useState('');
 const [novoLote, setNovoLote] = useState('');
 const [novaObservacao, setNovaObservacao] = useState('');
 const [novoStatusConferencia, setNovoStatusConferencia] = useState<StatusConferencia>('pendente');
@@ -432,6 +450,7 @@ const [tempRegional, setTempRegional] = useState('');
 const [tempColaborador, setTempColaborador] = useState('');
 const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
 const [tempThemePreference, setTempThemePreference] = useState<ThemePreference>('system');
+const [tempModoAcessibilidade, setTempModoAcessibilidade] = useState(false);
 
 // NOVOS ESTADOS: SWIPE, GRÁFICO
 const [showGraficoStatus, setShowGraficoStatus] = useState(false);
@@ -440,9 +459,7 @@ const [produtoSwipeado, setProdutoSwipeado] = useState<string | null>(null);
 const [refreshing, setRefreshing] = useState(false);
 const [showOnboarding, setShowOnboarding] = useState(false);
 const [onboardingStep, setOnboardingStep] = useState(0);
-const [setoresDisponiveis, setSetoresDisponiveis] = useState<string[]>(SETORES_PADRAO);
-const [tempSetores, setTempSetores] = useState<string[]>([]);
-const [tempNovoSetor, setTempNovoSetor] = useState('');
+
 const swipeRefs = useRef<Record<string, Swipeable | null>>({});
 const swipeAbertoRef = useRef<string | null>(null);
 
@@ -624,6 +641,39 @@ if (embalagem) return ROTULOS_TIPO_EMBALAGEM[embalagem as TipoEmbalagem];
 
 const unidade = produto.unidade_medida || inferirMedidaDaApresentacao(produto.apresentacao).unidade_medida;
 return ROTULOS_UNIDADE_MEDIDA[unidade] || 'sem tipo';
+};
+
+const extrairValidadeMaisProxima = (validade: string, validadesAdicionaisJson?: string): string => {
+const datas: Date[] = [];
+const dataAtual = new Date();
+dataAtual.setHours(0, 0, 0, 0);
+
+if (validade) {
+  const data = new Date(validade);
+  data.setHours(0, 0, 0, 0);
+  datas.push(data);
+}
+
+if (validadesAdicionaisJson) {
+  try {
+    const adiconais = JSON.parse(validadesAdicionaisJson) as string[];
+    for (const d of adiconais) {
+      const data = new Date(d);
+      data.setHours(0, 0, 0, 0);
+      datas.push(data);
+    }
+  } catch {}
+}
+
+if (datas.length === 0) return validade;
+
+const maisproxima = datas.reduce((prev, current) => {
+  const diffPrev = Math.abs(prev.getTime() - dataAtual.getTime());
+  const diffCurrent = Math.abs(current.getTime() - dataAtual.getTime());
+  return diffCurrent < diffPrev ? current : prev;
+});
+
+return maisproxima.toISOString().split('T')[0];
 };
 
 const preencherCamposDoProduto = useCallback((cadastro: CadastroEan) => {
@@ -876,7 +926,6 @@ const r = await AsyncStorage.getItem('@regional');
 const c = await AsyncStorage.getItem('@colaborador');
 const autoExcluir = await AsyncStorage.getItem(CHAVE_AUTO_EXCLUIR_VENCIDOS);
 const modoTema = await AsyncStorage.getItem(CHAVE_MODO_TEMA);
-const setoresSalvos = await AsyncStorage.getItem(CHAVE_SETORES_PERSONALIZADOS);
 if (l) setLoja(l);
 if (r) setRegional(r);
 if (c) setColaborador(c);
@@ -885,9 +934,9 @@ if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
   setThemePreference(modoTema);
   setTempThemePreference(modoTema);
 }
-if (setoresSalvos) {
-  try { setSetoresDisponiveis(JSON.parse(setoresSalvos)); } catch {}
-}
+const modoA11y = await AsyncStorage.getItem(CHAVE_MODO_ACESSIBILIDADE);
+setModoAcessibilidade(modoA11y === 'true');
+setTempModoAcessibilidade(modoA11y === 'true');
 
   // 2. Inicializar Banco de Dados (SQLite)
   const db = await abrirBanco();
@@ -901,10 +950,10 @@ if (setoresSalvos) {
       unidade_medida TEXT,
       quantidade_medida REAL DEFAULT 0,
       validade TEXT,
+      validades_adicionais TEXT,
       custo REAL,
       qtd INTEGER,
       colaborador TEXT,
-      setor TEXT,
       lote TEXT,
       observacao TEXT,
       status_conferencia TEXT DEFAULT 'pendente'
@@ -941,7 +990,7 @@ if (setoresSalvos) {
   await garantirColuna(db, 'produtos', "unidade_medida TEXT DEFAULT 'unidades'");
   await garantirColuna(db, 'produtos', 'embalagem TEXT');
   await garantirColuna(db, 'produtos', 'quantidade_medida REAL DEFAULT 0');
-  await garantirColuna(db, 'produtos', 'setor TEXT');
+  await garantirColuna(db, 'produtos', 'validades_adicionais TEXT');
   await garantirColuna(db, 'produtos', 'lote TEXT');
   await garantirColuna(db, 'produtos', 'observacao TEXT');
   await garantirColuna(db, 'produtos', "status_conferencia TEXT DEFAULT 'pendente'");
@@ -995,10 +1044,9 @@ setTempRegional(regional);
 setTempColaborador(colaborador);
 setTempAutoExcluirVencidos(autoExcluirVencidos);
 setTempThemePreference(themePreference);
-setTempSetores(setoresDisponiveis);
-setTempNovoSetor('');
+setTempModoAcessibilidade(modoAcessibilidade);
 setShowConfig(true);
-}, [autoExcluirVencidos, colaborador, loja, regional, setoresDisponiveis, themePreference]);
+}, [autoExcluirVencidos, colaborador, loja, modoAcessibilidade, regional, themePreference]);
 
 const salvarConfiguracoes = async () => {
 try {
@@ -1007,13 +1055,13 @@ await AsyncStorage.setItem('@regional', tempRegional.toUpperCase());
 await AsyncStorage.setItem('@colaborador', tempColaborador);
 await AsyncStorage.setItem(CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false');
 await AsyncStorage.setItem(CHAVE_MODO_TEMA, tempThemePreference);
-await AsyncStorage.setItem(CHAVE_SETORES_PERSONALIZADOS, JSON.stringify(tempSetores));
+await AsyncStorage.setItem(CHAVE_MODO_ACESSIBILIDADE, tempModoAcessibilidade ? 'true' : 'false');
 setLoja(tempLoja.toUpperCase());
 setRegional(tempRegional.toUpperCase());
 setColaborador(tempColaborador);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
 setThemePreference(tempThemePreference);
-setSetoresDisponiveis(tempSetores);
+setModoAcessibilidade(tempModoAcessibilidade);
 setShowConfig(false);
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
@@ -1118,6 +1166,32 @@ setDataValidadeSelecionada(dataSelecionada);
 
 if (Platform.OS === 'android') {
   confirmarDatePicker(dataSelecionada);
+}
+};
+
+const abrirDatePickerAdicional = () => {
+setDataValidadeAdicionalSelecionada(new Date());
+setShowDatePickerAdicional(true);
+};
+
+const confirmarDatePickerAdicional = (novaData: Date) => {
+const year = novaData.getFullYear();
+const month = String(novaData.getMonth() + 1).padStart(2, '0');
+const day = String(novaData.getDate()).padStart(2, '0');
+const isoDate = `${year}-${month}-${day}`;
+setNovasValidadesAdicionais(prev => prev.includes(isoDate) ? prev : [...prev, isoDate]);
+setShowDatePickerAdicional(false);
+};
+
+const aoMudarDatePickerAdicional = (evento: DateTimePickerEvent, data?: Date) => {
+if (evento.type === 'dismissed') {
+  setShowDatePickerAdicional(false);
+  return;
+}
+const dataSelecionada = data ?? dataValidadeAdicionalSelecionada;
+setDataValidadeAdicionalSelecionada(dataSelecionada);
+if (Platform.OS === 'android') {
+  confirmarDatePickerAdicional(dataSelecionada);
 }
 };
 
@@ -1248,23 +1322,27 @@ const dataExportacao = new Date().toLocaleDateString('pt-BR', { day: '2-digit', 
 const fileName = `Validades_${sanitizarTrechoArquivo(loja)}_${Date.now()}.xlsx`;
 
 const montarLinhasProdutos = (lista: Produto[]) => [
-  ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Status', 'Quantidade', 'Colaborador', 'Setor', 'Lote', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
-  ...lista.map((p: Produto) => [
-    p.nome || '',
-    p.apresentacao || '',
-    p.embalagem || inferirTipoEmbalagem(p.apresentacao) || '',
-    p.codigo,
-    p.validade,
-    obterStatusDesconto(p.validade).label,
-    p.qtd,
-    p.colaborador || '',
-    p.setor || '',
-    p.lote || '',
-    p.status_conferencia || 'pendente',
-    p.unidade_medida || 'unidades',
-    p.quantidade_medida || 0,
-    p.observacao || '',
-  ]),
+  ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Lote', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
+  ...lista.map((p: Produto) => {
+    const validadePrioritaria = extrairValidadeMaisProxima(p.validade, p.validades_adicionais);
+    const adicionais = p.validades_adicionais ? (JSON.parse(p.validades_adicionais) as string[]).map(formataDataBR).join(' | ') : '';
+    return [
+      p.nome || '',
+      p.apresentacao || '',
+      p.embalagem || inferirTipoEmbalagem(p.apresentacao) || '',
+      p.codigo,
+      p.validade,
+      adicionais,
+      obterStatusDesconto(validadePrioritaria).label,
+      p.qtd,
+      p.colaborador || '',
+      p.lote || '',
+      p.status_conferencia || 'pendente',
+      p.unidade_medida || 'unidades',
+      p.quantidade_medida || 0,
+      p.observacao || '',
+    ];
+  }),
 ];
 
 const resumoExportacaoMap = new Map<string, { colaborador: string; qtd: number; risco: number; markdown: number }>();
@@ -1272,7 +1350,7 @@ const resumoExportacaoMap = new Map<string, { colaborador: string; qtd: number; 
 for (const produto of produtos) {
   const chaveColaborador = produto.colaborador || 'Sem nome';
   const acumulado = resumoExportacaoMap.get(chaveColaborador) || { colaborador: chaveColaborador, qtd: 0, risco: 0, markdown: 0 };
-  const status = obterStatusDesconto(produto.validade).tipo;
+  const status = obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo;
   acumulado.qtd += produto.qtd;
   if (status === 'retirar' || status === 'vencido') acumulado.risco += produto.qtd;
   if (status === 'markdown') acumulado.markdown += produto.qtd;
@@ -1297,9 +1375,9 @@ try {
     [],
     ...montarLinhasProdutos(produtos),
   ]);
-  const worksheetVencidos = XLSX.utils.aoa_to_sheet(montarLinhasProdutos(produtos.filter((produto) => obterStatusDesconto(produto.validade).tipo === 'vencido')));
+  const worksheetVencidos = XLSX.utils.aoa_to_sheet(montarLinhasProdutos(produtos.filter((produto) => obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo === 'vencido')));
   const worksheetProximos = XLSX.utils.aoa_to_sheet(montarLinhasProdutos(produtos.filter((produto) => {
-    const status = obterStatusDesconto(produto.validade).tipo;
+    const status = obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo;
     return status === 'retirar' || status === 'markdown';
   })));
   const worksheetResumo = XLSX.utils.aoa_to_sheet(planilhaResumoColaborador);
@@ -1338,8 +1416,8 @@ try {
   const workbook = XLSX.utils.book_new();
 
   const worksheetModelo = XLSX.utils.aoa_to_sheet([
-    ['Nome', 'Codigo_EAN', 'Validade', 'Apresentacao', 'Quantidade', 'Colaborador', 'Setor', 'Lote', 'Observacao', 'Embalagem', 'Tipo_Medida', 'Conteudo_Embalagem', 'Status_Conferencia'],
-    ['Dipirona 500mg', '7891234567890', '2026-12-31', 'Caixa com 20 comprimidos', '2', colaborador, 'Balcao', 'L123', 'Exemplo de observacao', 'frasco', 'comprimidos', '20', 'pendente'],
+    ['Nome', 'Codigo_EAN', 'Validade', 'Apresentacao', 'Quantidade', 'Colaborador', 'Lote', 'Observacao', 'Embalagem', 'Tipo_Medida', 'Conteudo_Embalagem', 'Status_Conferencia'],
+    ['Dipirona 500mg', '7891234567890', '2026-12-31', 'Caixa com 20 comprimidos', '2', colaborador, 'L123', 'Exemplo de observacao', 'frasco', 'comprimidos', '20', 'pendente'],
   ]);
 
   const worksheetMinimo = XLSX.utils.aoa_to_sheet([
@@ -1388,8 +1466,8 @@ try {
     for (const p of listaProdutos) {
       const novoIdImportado = gerarId();
       await db.runAsync(
-        'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        novoIdImportado, p.nome, p.codigo, p.apresentacao || '', p.embalagem || '', p.unidade_medida || 'unidades', p.quantidade_medida || 0, p.validade, p.custo, p.qtd, p.colaborador, p.setor || '', p.lote || '', p.observacao || '', p.status_conferencia || 'pendente'
+        'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, validades_adicionais, custo, qtd, colaborador, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        novoIdImportado, p.nome, p.codigo, p.apresentacao || '', p.embalagem || '', p.unidade_medida || 'unidades', p.quantidade_medida || 0, p.validade, p.validades_adicionais || null, p.custo, p.qtd, p.colaborador, p.lote || '', p.observacao || '', p.status_conferencia || 'pendente'
       );
       await registrarHistorico({
         produto_id: novoIdImportado,
@@ -1483,10 +1561,10 @@ copyToCacheDirectory: true
         custo: 0,
         qtd: parseInt((cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_QUANTIDADE) : (layoutMinimoSemCabecalho ? '1' : cols[possuiColunaCustoLegada ? 6 : 5])) || '1', 10) || 1,
         colaborador: (cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_COLABORADOR) : (layoutMinimoSemCabecalho ? colaborador : cols[possuiColunaMedida ? 6 : (possuiColunaCustoLegada ? 7 : 6)])) || colaborador,
-        setor: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_SETOR) : '',
         lote: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_LOTE) : '',
         observacao: cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_OBSERVACAO) : '',
         status_conferencia: normalizarStatusConferenciaImportado(cabecalhos.length ? obterValorPorCabecalho(registro, ALIASES_STATUS) : ''),
+        validades_adicionais: undefined,
       });
     }
   }
@@ -1657,10 +1735,10 @@ const persistir = async () => {
     const qtdNum = parseInt(novaQtd, 10) || 1;
     const quantidadeMedidaNum = parseNumeroMedida(novaQuantidadeMedida);
     const embalagemFinal = novaEmbalagem || inferirTipoEmbalagem(novaApresentacao) || '';
-    const setorFinal = novoSetor.trim();
     const loteFinal = novoLote.trim();
     const observacaoFinal = novaObservacao.trim();
     const validadeNormalizada = normalizarDataISO(novaValidade);
+    const validadesJson = novasValidadesAdicionais.length > 0 ? JSON.stringify(novasValidadesAdicionais) : null;
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(validadeNormalizada)) {
       Alert.alert('Erro', 'A validade precisa estar no formato AAAA-MM-DD ou DD/MM/AAAA.');
@@ -1670,8 +1748,8 @@ const persistir = async () => {
     await db.withTransactionAsync(async () => {
       if (editandoId) {
         await db.runAsync(
-          'UPDATE produtos SET nome = ?, codigo = ?, apresentacao = ?, embalagem = ?, unidade_medida = ?, quantidade_medida = ?, validade = ?, custo = ?, qtd = ?, colaborador = ?, setor = ?, lote = ?, observacao = ?, status_conferencia = ? WHERE id = ?',
-          novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia, editandoId
+          'UPDATE produtos SET nome = ?, codigo = ?, apresentacao = ?, embalagem = ?, unidade_medida = ?, quantidade_medida = ?, validade = ?, validades_adicionais = ?, custo = ?, qtd = ?, colaborador = ?, lote = ?, observacao = ?, status_conferencia = ? WHERE id = ?',
+          novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, validadesJson, 0, qtdNum, colaborador, loteFinal, observacaoFinal, novoStatusConferencia, editandoId
         );
         await registrarHistorico({
           produto_id: editandoId,
@@ -1685,8 +1763,8 @@ const persistir = async () => {
       } else {
         const novoId = gerarId();
         await db.runAsync(
-          'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, custo, qtd, colaborador, setor, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          novoId, novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, 0, qtdNum, colaborador, setorFinal, loteFinal, observacaoFinal, novoStatusConferencia
+          'INSERT INTO produtos (id, nome, codigo, apresentacao, embalagem, unidade_medida, quantidade_medida, validade, validades_adicionais, custo, qtd, colaborador, lote, observacao, status_conferencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          novoId, novoNome.trim(), novoCodigo.trim(), novaApresentacao.trim(), embalagemFinal, novaUnidadeMedida, quantidadeMedidaNum, validadeNormalizada, validadesJson, 0, qtdNum, colaborador, loteFinal, observacaoFinal, novoStatusConferencia
         );
         await registrarHistorico({
           produto_id: novoId,
@@ -1734,7 +1812,8 @@ setNovaUnidadeMedida(p.unidade_medida || inferirMedidaDaApresentacao(p.apresenta
 setNovaQuantidadeMedida(p.quantidade_medida ? String(p.quantidade_medida) : '');
 setNovaQtd(p.qtd.toString());
 setNovaValidade(p.validade);
-setNovoSetor(p.setor || '');
+const adicionais = p.validades_adicionais ? JSON.parse(p.validades_adicionais) as string[] : [];
+setNovasValidadesAdicionais(adicionais);
 setNovoLote(p.lote || '');
 setNovaObservacao(p.observacao || '');
 setNovoStatusConferencia((p.status_conferencia || 'pendente') as StatusConferencia);
@@ -1751,8 +1830,9 @@ setNovaEmbalagem('');
 setNovaUnidadeMedida('unidades');
 setNovaQuantidadeMedida('');
 setNovaValidade('');
+setNovasValidadesAdicionais([]);
+setNovaValidadeAdicionada('');
 setNovaQtd('');
-setNovoSetor('');
 setNovoLote('');
 setNovaObservacao('');
 setNovoStatusConferencia('pendente');
@@ -1837,8 +1917,9 @@ const filtroImportPreviewAdiado = useDeferredValue(filtroImportPreview);
 
 const produtosComAnalise = useMemo<ProdutoComAnalise[]>(() => {
 return produtos.map((produto) => {
-  const statusValidade = obterStatusDesconto(produto.validade);
-  const diasAteValidade = obterDiasAteValidade(produto.validade);
+  const validadePrioritaria = extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais);
+  const statusValidade = obterStatusDesconto(validadePrioritaria);
+  const diasAteValidade = obterDiasAteValidade(validadePrioritaria);
   const embalagemCalculada = produto.embalagem || inferirTipoEmbalagem(produto.apresentacao) || null;
   return {
     ...produto,
@@ -1924,7 +2005,6 @@ const camposBusca = [
   item.nome,
   item.codigo,
   item.apresentacao || '',
-  item.setor || '',
   item.colaborador || '',
 ].map((valor) => valor.toLowerCase());
 
@@ -1962,7 +2042,6 @@ return produtosComAnalise.filter((produto) => {
   if (filtroValidade === 'no_prazo') return produto.statusValidade.tipo === 'ok';
 
   if (filtroColaborador && !(produto.colaborador || '').toLowerCase().includes(filtroColaborador.toLowerCase())) return false;
-  if (filtroSetor && (produto.setor || '') !== filtroSetor) return false;
   if (filtroStatusConferencia !== 'todos' && (produto.status_conferencia || 'pendente') !== filtroStatusConferencia) return false;
   if (filtroUnidadeMedida !== 'todos' && (produto.unidade_medida || 'unidades') !== filtroUnidadeMedida) return false;
   if (filtroEmbalagem !== 'todos' && (produto.embalagemCalculada || '') !== filtroEmbalagem) return false;
@@ -1980,7 +2059,7 @@ return produtosComAnalise.filter((produto) => {
   if (prioridadeDiff !== 0) return prioridadeDiff;
   return a.diasAteValidade - b.diasAteValidade;
 });
-}, [filtroColaborador, filtroEmbalagem, filtroSetor, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
+}, [filtroColaborador, filtroEmbalagem, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
 
 const totaisMedidosFiltrados = useMemo(() => resumirTotaisMedidos(produtosFiltrados), [produtosFiltrados]);
 const { totalQtdAuditada, qtdMarkdown, qtdRiscoImediato, qtdVence7, qtdVence15, qtdVence30, resumoPorColaborador } = resumoKpis;
@@ -1988,7 +2067,7 @@ const totalMedidoPrincipal = totaisMedidosFiltrados[0] || 'Sem medida';
 const totaisMedidosSecundarios = totaisMedidosFiltrados.slice(1, 3);
 const embalagemAtual = inferirTipoEmbalagem(novaApresentacao);
 const embalagemSelecionada = novaEmbalagem || embalagemAtual;
-const filtrosAvancadosAtivos = [filtroColaborador, filtroSetor, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
+const filtrosAvancadosAtivos = [filtroColaborador, filtroStatusConferencia !== 'todos' ? filtroStatusConferencia : '', filtroUnidadeMedida !== 'todos' ? filtroUnidadeMedida : '', filtroEmbalagem !== 'todos' ? filtroEmbalagem : ''].filter(Boolean).length;
 
 // ==========================================
 // NOVOS: GRÁFICO, PDF
@@ -2127,17 +2206,16 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
       if (swipeAbertoRef.current === p.id) swipeAbertoRef.current = null;
       setProdutoSwipeado((atual) => (atual === p.id ? null : atual));
     }}>
-  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }, produtoSwipeado === p.id && styles.cardProdutoSwipeOpen]}>
+  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }, produtoSwipeado === p.id && styles.cardProdutoSwipeOpen, modoAcessibilidade && { padding: a11y.cardPad, borderWidth: 2 }]}>
     <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
       <View style={styles.cardHeaderInfo}>
-        <Text style={[styles.prodNome, { color: theme.text }]}>{p.nome}</Text>
+        <Text style={[styles.prodNome, { color: theme.text, fontSize: a11y.fNome }]}>{p.nome}</Text>
 
         <View style={styles.tagsRow}>
           {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
           {p.embalagemCalculada ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[p.embalagemCalculada]}</Text></View> : null}
           <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
           <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
-          {p.setor ? <View style={[styles.tagSetor, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><Text style={[styles.tagSetorText, { color: theme.chipText }]}>{p.setor}</Text></View> : null}
           <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
         </View>
 
@@ -2152,23 +2230,23 @@ const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise })
     </View>
 
     <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
-      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>QTD</Text><Text style={[styles.infoValue, { color: theme.text }]}>{p.qtd}</Text></View>
-      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{p.totalMedidoCalculado || p.codigo}</Text></View>
+      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>QTD</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.qtd}</Text></View>
+      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.totalMedidoCalculado || p.codigo}</Text></View>
     </View>
 
-    <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }] }>
+    <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }, modoAcessibilidade && { padding: 16, borderWidth: 2 }]}>
       <View style={styles.statusRow}>
-        <Text style={[styles.statusLabelTitle, { color: p.statusValidade.cor }]}>VENCIMENTO</Text>
-        <Text style={[styles.statusDateValue, { color: p.statusValidade.cor }]}>{formataDataBR(p.validade)}</Text>
+        <Text style={[styles.statusLabelTitle, { color: p.statusValidade.cor }, modoAcessibilidade && { fontSize: 13 }]}>VENCIMENTO</Text>
+        <Text style={[styles.statusDateValue, { color: p.statusValidade.cor, fontSize: a11y.fStatus }]}>{formataDataBR(p.validade)}</Text>
       </View>
-      <View style={styles.statusBigTag}>
-        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={14} />}
-        <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor }]}>{p.statusValidade.label}</Text>
+      <View style={[styles.statusBigTag, modoAcessibilidade && { padding: 12 }]}>
+        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={a11y.iconSize} />}
+        <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor, fontSize: a11y.fStatusTag }]}>{p.statusValidade.label}</Text>
       </View>
     </View>
   </View>
   </Swipeable>
-), [isCompact, isTablet, produtoSwipeado, renderAcoesSwipeDireita, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
+), [a11y, isCompact, isTablet, modoAcessibilidade, produtoSwipeado, renderAcoesSwipeDireita, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
 
 const renderListaHeader = (
   <>
@@ -2232,7 +2310,6 @@ const renderListaHeader = (
           onPress={() => {
             setFiltroValidade('todos');
             setFiltroColaborador('');
-            setFiltroSetor('');
             setFiltroStatusConferencia('todos');
             setFiltroUnidadeMedida('todos');
             setFiltroEmbalagem('todos');
@@ -2404,6 +2481,7 @@ return (
     data={produtosFiltrados}
     renderItem={renderProdutoItem}
     keyExtractor={(item) => item.id}
+    extraData={[modoAcessibilidade, produtoSwipeado, isDark]}
     ListHeaderComponent={renderListaHeader}
     ListFooterComponent={<View style={{height: 88}} />}
     removeClippedSubviews={Platform.OS === 'android'}
@@ -2494,6 +2572,20 @@ return (
           <Text style={[styles.dateFieldText, { color: theme.text }, !novaValidade && styles.dateFieldPlaceholder, !novaValidade && { color: theme.muted }]}>{novaValidade ? formataDataBR(novaValidade) : 'Selecionar no calendário'}</Text>
         </TouchableOpacity>
 
+        <Text style={[styles.label, { color: theme.muted, marginTop: 16 }]}>VALIDADES EXTRAS</Text>
+        {novasValidadesAdicionais.map((v, idx) => (
+          <View key={idx} style={[styles.validadeAdicionalRow, { backgroundColor: theme.cardBg }]}>
+            <Text style={[styles.validadeAdicionalText, { color: theme.text }]}>{formataDataBR(v)}</Text>
+            <TouchableOpacity onPress={() => setNovasValidadesAdicionais(prev => prev.filter((_, i) => i !== idx))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <X size={16} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        ))}
+        <TouchableOpacity style={[styles.btnAddValidade, { borderColor: theme.border }]} onPress={abrirDatePickerAdicional}>
+          <Plus size={16} color="#565DF0" />
+          <Text style={styles.btnAddValidadeText}>Adicionar validade extra</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={[styles.btnSalvar, {backgroundColor: editandoId ? '#F97316' : '#565DF0'}]} onPress={salvarProduto}>
           <Check size={24}/>
           <Text style={styles.btnSalvarText}>{editandoId ? 'Atualizar DB' : 'Gravar no SQLite'}</Text>
@@ -2555,50 +2647,18 @@ return (
           })}
         </View>
 
-        <Text style={[styles.label, { color: theme.muted }]}>SETORES PERSONALIZADOS</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
-          <View style={styles.quickChipRow}>
-            {tempSetores.map((setor) => (
-              <TouchableOpacity
-                key={setor}
-                style={[styles.quickChip, { flexDirection: 'row', alignItems: 'center', gap: 5 }]}
-                onPress={() => setTempSetores((prev) => prev.filter((s) => s !== setor))}>
-                <Text style={styles.quickChipText}>{setor}</Text>
-                <X size={11} />
-              </TouchableOpacity>
-            ))}
-            {tempSetores.length === 0 && (
-              <Text style={[styles.quickChipText, { color: theme.muted, lineHeight: 32 }]}>Nenhum setor cadastrado</Text>
-            )}
+        <Text style={[styles.label, { color: theme.muted }]}>ACESSIBILIDADE</Text>
+        <TouchableOpacity style={[styles.configOptionCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} activeOpacity={0.85} onPress={() => setTempModoAcessibilidade((v) => !v)}>
+          <View style={styles.configOptionTextWrap}>
+            <Text style={[styles.configOptionTitle, { color: theme.text }]}>Modo de acessibilidade</Text>
+            <Text style={[styles.configOptionDescription, { color: theme.muted }]}>
+              Aumenta o texto, o espaçamento e o contraste dos cards para facilitar a leitura.
+            </Text>
           </View>
-        </ScrollView>
-        <View style={[styles.row, { gap: 8, marginTop: 6, marginBottom: 4 }]}>
-          <TextInput
-            style={[styles.input, { flex: 1, marginTop: 0, backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-            value={tempNovoSetor}
-            onChangeText={setTempNovoSetor}
-            placeholder="Adicionar setor..."
-            placeholderTextColor={theme.muted}
-            onSubmitEditing={() => {
-              const nome = tempNovoSetor.trim();
-              if (nome && !tempSetores.includes(nome)) {
-                setTempSetores((prev) => [...prev, nome]);
-                setTempNovoSetor('');
-              }
-            }}
-          />
-          <TouchableOpacity
-            style={{ backgroundColor: '#565DF0', paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => {
-              const nome = tempNovoSetor.trim();
-              if (nome && !tempSetores.includes(nome)) {
-                setTempSetores((prev) => [...prev, nome]);
-                setTempNovoSetor('');
-              }
-            }}>
-            <Plus size={20} />
-          </TouchableOpacity>
-        </View>
+          <View style={[styles.configToggle, tempModoAcessibilidade && styles.configToggleActive]}>
+            <View style={[styles.configToggleThumb, tempModoAcessibilidade && styles.configToggleThumbActive]} />
+          </View>
+        </TouchableOpacity>
 
         <Text style={[styles.label, { color: theme.muted }]}>EXCLUSÃO AUTOMÁTICA</Text>
         <TouchableOpacity style={[styles.configOptionCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} activeOpacity={0.85} onPress={() => setTempAutoExcluirVencidos((estadoAtual) => !estadoAtual)}>
@@ -2837,20 +2897,6 @@ return (
         <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
         <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={filtroColaborador} onChangeText={setFiltroColaborador} placeholder="Filtrar por colaborador" placeholderTextColor={theme.muted} />
 
-        <Text style={[styles.label, { color: theme.muted }]}>SETOR</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
-          <View style={styles.quickChipRow}>
-            <TouchableOpacity style={[styles.quickChip, !filtroSetor && styles.quickChipActive]} onPress={() => setFiltroSetor('')}>
-              <Text style={[styles.quickChipText, !filtroSetor && styles.quickChipTextActive]}>Todos</Text>
-            </TouchableOpacity>
-            {setoresDisponiveis.map((setor) => (
-              <TouchableOpacity key={setor} style={[styles.quickChip, filtroSetor === setor && styles.quickChipActive]} onPress={() => setFiltroSetor(setor)}>
-                <Text style={[styles.quickChipText, filtroSetor === setor && styles.quickChipTextActive]}>{setor}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-
         <Text style={[styles.label, { color: theme.muted }]}>STATUS DE CONFERÊNCIA</Text>
         <View style={styles.measureOptionsWrap}>
           <TouchableOpacity style={[styles.measureChip, filtroStatusConferencia === 'todos' && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia('todos')}><Text style={[styles.measureChipText, filtroStatusConferencia === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
@@ -2882,7 +2928,6 @@ return (
         </TouchableOpacity>
         <TouchableOpacity style={styles.btnDialogDanger} onPress={() => {
           setFiltroColaborador('');
-          setFiltroSetor('');
           setFiltroStatusConferencia('todos');
           setFiltroUnidadeMedida('todos');
           setFiltroEmbalagem('todos');
@@ -3049,6 +3094,35 @@ return (
       </Animated.View>
     </View>
   </Modal>
+
+  <Modal visible={showDatePickerAdicional && Platform.OS === 'ios'} transparent={true} animationType="fade">
+    <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
+      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
+        <View style={styles.dialogHeader}>
+          <Text style={[styles.dialogTitle, { color: theme.title }]}>Validade extra</Text>
+          <TouchableOpacity onPress={() => setShowDatePickerAdicional(false)}><X/></TouchableOpacity>
+        </View>
+        <DateTimePicker
+          value={dataValidadeAdicionalSelecionada}
+          mode="date"
+          display="spinner"
+          onChange={aoMudarDatePickerAdicional}
+        />
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePickerAdicional(dataValidadeAdicionalSelecionada)}>
+          <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+
+  {showDatePickerAdicional && Platform.OS === 'android' ? (
+    <DateTimePicker
+      value={dataValidadeAdicionalSelecionada}
+      mode="date"
+      display="default"
+      onChange={aoMudarDatePickerAdicional}
+    />
+  ) : null}
 
   <Modal visible={showDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
@@ -3335,8 +3409,6 @@ tagTipo: { backgroundColor: '#EEF2FF', paddingHorizontal: 8, paddingVertical: 4,
 tagTipoText: { color: '#3730A3', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' },
 tagStatusConferencia: { backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D' },
 tagStatusConferenciaText: { color: '#92400E', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' },
-tagSetor: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB' },
-tagSetorText: { color: '#374151', fontSize: 11, fontWeight: 'bold' },
 tagColab: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 },
 tagColabText: { color: '#4B5563', fontSize: 10, fontWeight: 'bold' },
 eanBox: { backgroundColor: '#F3F4F6', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -3399,6 +3471,10 @@ historyDateClearText: { color: '#475569', fontSize: 12, fontWeight: '800' },
 row: { flexDirection: 'row', alignItems: 'center' },
 rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 autoSearchHint: { color: '#4338CA', fontSize: 12, marginTop: 10, fontWeight: '700', lineHeight: 18 },
+  validadeAdicionalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 6 },
+  validadeAdicionalText: { fontSize: 14, fontWeight: '600' },
+  btnAddValidade: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 12, padding: 12, justifyContent: 'center', marginBottom: 4 },
+  btnAddValidadeText: { color: '#565DF0', fontSize: 14, fontWeight: '700' },
 btnCamera: { backgroundColor: '#565DF0', width: 60, height: 60, borderRadius: 16, marginLeft: 12, justifyContent: 'center', alignItems: 'center', elevation: 2 },
 btnCameraCompact: { width: 52, height: 52, marginLeft: 8 },
 btnSalvar: { flexDirection: 'row', padding: 20, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginTop: 40, marginBottom: 60, elevation: 4 },

@@ -39,6 +39,8 @@ Hoje ele permite:
 ### Validade e risco
 
 - classificação automática por dias restantes
+- suporte a múltiplas datas de validade por produto
+- prioridade automática para a data mais próxima de vencer
 - status visuais de vencimento:
   - `VENCIDO`
   - `RETIRAR`
@@ -75,7 +77,6 @@ Hoje ele permite:
 ### Organização operacional
 
 - loja, regional e colaborador persistidos localmente
-- campo de setor
 - campo de lote
 - campo de observação
 - status de conferência:
@@ -92,7 +93,6 @@ Hoje ele permite:
   - `Vencidos`
 - filtros avançados por:
   - colaborador
-  - setor
   - status de conferência
   - medida
   - embalagem
@@ -230,7 +230,6 @@ Campos principais em `produtos`:
 - `validade`
 - `qtd`
 - `colaborador`
-- `setor`
 - `lote`
 - `observacao`
 - `status_conferencia`
@@ -255,12 +254,11 @@ Você pode:
 
 Campos operacionais relevantes:
 - nome
-- apresentação
+- apresentção
 - medida para cálculo
 - conteúdo por embalagem
 - quantidade
 - validade
-- setor
 - lote
 - status de conferência
 - observação
@@ -354,7 +352,7 @@ O foco do app é reduzir perdas por vencimento e melhorar a operação de audito
 
 **Colunas exportadas:**
 ```
-Nome;Apresentacao;Embalagem;Codigo_EAN;Validade;Status;Quantidade;Colaborador;Setor;Lote;Status_Conferencia;Tipo_Medida;Conteudo_Embalagem;Observacao
+Nome;Apresentacao;Embalagem;Codigo_EAN;Validade;Status;Quantidade;Colaborador;Lote;Status_Conferencia;Tipo_Medida;Conteudo_Embalagem;Observacao
 ```
 
 ### 7️⃣ Importar Dados
@@ -482,7 +480,7 @@ m → Mostrar menu de desenvolvimento
 ### Problema: "Arquivo não importa"
 **Solução:** Verifique formatação:
 - Para CSV: separador deve ser **ponto-e-vírgula (;)**, codificação **UTF-8**
-- Cabeçalhos reconhecidos (novo layout): `Nome`, `Apresentacao`, `Codigo_EAN`, `Validade`, `Quantidade`, `Colaborador`, `Setor`, `Lote`, `Status_Conferencia`
+- Cabeçalhos reconhecidos (novo layout): `Nome`, `Apresentacao`, `Codigo_EAN`, `Validade`, `Quantidade`, `Colaborador`, `Lote`, `Status_Conferencia`
 - Layout antigo por posição de coluna também é suportado
 
 ### Problema: "EAN não encontra produto"
@@ -537,9 +535,37 @@ Este projeto é código aberto sob licença MIT. Sinta-se livre para usar, modif
 
 Desenvolvido com ❤️ para farmácias e lojas que desejam melhorar gestão de validade.
 
-**Versão:** 1.0.2  
+**Versão:** 1.0.3  
 **Data:** Março 2026  
 **Framework:** React Native + Expo
+
+---
+
+## 📋 Changelog
+
+### v1.0.3 — Março 2026
+- Suporte a múltiplas datas de validade por produto com prioridade automática para a mais próxima
+- Interface para adicionar e remover validades extras no formulário de produto
+- Modo de acessibilidade: fontes maiores, espaçamento ampliado e bordas mais destacadas nos cards
+- Export XLSX corrigido para usar a data prioritária no status e nas abas Vencidos/Próximos
+- Nova coluna `Validades_Adicionais` no arquivo exportado
+- Correções em importação CSV/XLSX após refatoração
+
+### v1.0.2 — Março 2026
+- Remoção do campo setor em todos os formulários, filtros e exportações
+- Reorganização da interface de configurações
+
+### v1.0.1
+- Histórico local de movimentações
+- Filtros avançados por colaborador, medida e embalagem
+- Notificações locais de risco e lembrete recorrente
+
+### v1.0.0
+- Lançamento inicial
+- Cadastro de produtos com leitura de EAN
+- Classificação automática de status de vencimento
+- Importação e exportação XLSX
+- Base interna embarcada ANVISA/CMED
 
 ---
 
