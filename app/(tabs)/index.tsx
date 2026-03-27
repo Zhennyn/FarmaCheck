@@ -11,12 +11,11 @@ import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
 import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as XLSX from 'xlsx';
-import baseInternaEmbutida from '../../assets/data/anvisa-base.json';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 
 type Produto = {
@@ -156,8 +155,30 @@ const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const CHAVE_MODO_TEMA = '@modo_tema';
 const CHAVE_MODO_ACESSIBILIDADE = '@modo_acessibilidade';
+const CHAVE_LOJA = '@loja';
+const CHAVE_REGIONAL = '@regional';
+const CHAVE_COLABORADOR = '@colaborador';
 
 const CHAVE_ONBOARDING_CONCLUIDO = '@onboarding_v1';
+
+const CHAVES_CONFIGURACAO_INICIAL = [
+  CHAVE_LOJA,
+  CHAVE_REGIONAL,
+  CHAVE_COLABORADOR,
+  CHAVE_AUTO_EXCLUIR_VENCIDOS,
+  CHAVE_MODO_TEMA,
+  CHAVE_MODO_ACESSIBILIDADE,
+  CHAVE_PRIMEIRA_INSTALACAO,
+  CHAVE_ONBOARDING_CONCLUIDO,
+] as const;
+
+const INDICES_SQLITE = [
+  'CREATE INDEX IF NOT EXISTS idx_produtos_validade ON produtos(validade)',
+  'CREATE INDEX IF NOT EXISTS idx_produtos_codigo ON produtos(codigo)',
+  'CREATE INDEX IF NOT EXISTS idx_produtos_colaborador ON produtos(colaborador)',
+  'CREATE INDEX IF NOT EXISTS idx_produtos_status_conferencia ON produtos(status_conferencia)',
+  'CREATE INDEX IF NOT EXISTS idx_historico_data_evento ON historico_produtos(data_evento)',
+];
 const TIPOS_PLANILHA = [
   'text/csv',
   'text/plain',
@@ -323,6 +344,49 @@ if (partes.length !== 3) return dataStr;
 return `${partes[2]}/${partes[1]}/${partes[0]}`;
 };
 
+const lerListaJson = (valor?: string): string[] => {
+if (!valor) return [];
+
+try {
+  const lista = JSON.parse(valor) as unknown;
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+} catch {
+  return [];
+}
+};
+
+const extrairValidadeMaisProxima = (validade: string, validadesAdicionaisJson?: string): string => {
+const datas: Date[] = [];
+const dataAtual = new Date();
+dataAtual.setHours(0, 0, 0, 0);
+
+if (validade) {
+  const data = new Date(validade);
+  data.setHours(0, 0, 0, 0);
+  datas.push(data);
+}
+
+if (validadesAdicionaisJson) {
+  const adicionais = lerListaJson(validadesAdicionaisJson);
+  for (const d of adicionais) {
+    const data = new Date(d);
+    data.setHours(0, 0, 0, 0);
+    datas.push(data);
+  }
+}
+
+if (datas.length === 0) return validade;
+
+const maisproxima = datas.reduce((prev, current) => {
+  const diffPrev = Math.abs(prev.getTime() - dataAtual.getTime());
+  const diffCurrent = Math.abs(current.getTime() - dataAtual.getTime());
+  return diffCurrent < diffPrev ? current : prev;
+});
+
+return maisproxima.toISOString().split('T')[0];
+};
+
 export default function App() {
 const [isLoading, setIsLoading] = useState(true);
 const [permission, requestPermission] = useCameraPermissions();
@@ -420,6 +484,12 @@ const deslocamentoNotificacao = useRef(new Animated.Value(-12)).current;
 const deslocamentoSidebar = useRef(new Animated.Value(28)).current;
 const deslocamentoBottomSheet = useRef(new Animated.Value(36)).current;
 const opacidadePainelModal = useRef(new Animated.Value(0)).current;
+const deslocamentoDialogo = useRef(new Animated.Value(12)).current;
+const escalaDialogo = useRef(new Animated.Value(0.96)).current;
+const opacidadeDialogo = useRef(new Animated.Value(0)).current;
+const fechandoBottomSheetRef = useRef(false);
+const fechandoSidebarRef = useRef(false);
+const fechandoDialogoRef = useRef(false);
 
 // DATE PICKER
 const [showDatePicker, setShowDatePicker] = useState(false);
@@ -439,7 +509,6 @@ const [novaUnidadeMedida, setNovaUnidadeMedida] = useState<UnidadeMedida>('unida
 const [novaQuantidadeMedida, setNovaQuantidadeMedida] = useState('');
 const [novaValidade, setNovaValidade] = useState('');
 const [novasValidadesAdicionais, setNovasValidadesAdicionais] = useState<string[]>([]);
-const [novaValidadeAdicionada, setNovaValidadeAdicionada] = useState('');
 const [novaQtd, setNovaQtd] = useState('');
 const [novoLote, setNovoLote] = useState('');
 const [novaObservacao, setNovaObservacao] = useState('');
@@ -641,39 +710,6 @@ if (embalagem) return ROTULOS_TIPO_EMBALAGEM[embalagem as TipoEmbalagem];
 
 const unidade = produto.unidade_medida || inferirMedidaDaApresentacao(produto.apresentacao).unidade_medida;
 return ROTULOS_UNIDADE_MEDIDA[unidade] || 'sem tipo';
-};
-
-const extrairValidadeMaisProxima = (validade: string, validadesAdicionaisJson?: string): string => {
-const datas: Date[] = [];
-const dataAtual = new Date();
-dataAtual.setHours(0, 0, 0, 0);
-
-if (validade) {
-  const data = new Date(validade);
-  data.setHours(0, 0, 0, 0);
-  datas.push(data);
-}
-
-if (validadesAdicionaisJson) {
-  try {
-    const adiconais = JSON.parse(validadesAdicionaisJson) as string[];
-    for (const d of adiconais) {
-      const data = new Date(d);
-      data.setHours(0, 0, 0, 0);
-      datas.push(data);
-    }
-  } catch {}
-}
-
-if (datas.length === 0) return validade;
-
-const maisproxima = datas.reduce((prev, current) => {
-  const diffPrev = Math.abs(prev.getTime() - dataAtual.getTime());
-  const diffCurrent = Math.abs(current.getTime() - dataAtual.getTime());
-  return diffCurrent < diffPrev ? current : prev;
-});
-
-return maisproxima.toISOString().split('T')[0];
 };
 
 const preencherCamposDoProduto = useCallback((cadastro: CadastroEan) => {
@@ -892,7 +928,7 @@ const versaoAtual = await AsyncStorage.getItem(CHAVE_BASE_INTERNA);
 if (versaoAtual === VERSAO_BASE_INTERNA || versaoAtual?.startsWith('manual:')) return;
 
 const db = await abrirBanco();
-const baseEmbutida = baseInternaEmbutida as CadastroEan[];
+const baseEmbutida = require('../../assets/data/anvisa-base.json') as CadastroEan[];
 cacheEanMemoria.current = {};
 
 await db.withTransactionAsync(async () => {
@@ -921,11 +957,12 @@ await AsyncStorage.setItem(CHAVE_BASE_INTERNA, VERSAO_BASE_INTERNA);
 const inicializarApp = useCallback(async () => {
 try {
 // 1. Carregar Configurações (AsyncStorage)
-const l = await AsyncStorage.getItem('@loja');
-const r = await AsyncStorage.getItem('@regional');
-const c = await AsyncStorage.getItem('@colaborador');
-const autoExcluir = await AsyncStorage.getItem(CHAVE_AUTO_EXCLUIR_VENCIDOS);
-const modoTema = await AsyncStorage.getItem(CHAVE_MODO_TEMA);
+const configuracoes = Object.fromEntries(await AsyncStorage.multiGet([...CHAVES_CONFIGURACAO_INICIAL]));
+const l = configuracoes[CHAVE_LOJA];
+const r = configuracoes[CHAVE_REGIONAL];
+const c = configuracoes[CHAVE_COLABORADOR];
+const autoExcluir = configuracoes[CHAVE_AUTO_EXCLUIR_VENCIDOS];
+const modoTema = configuracoes[CHAVE_MODO_TEMA];
 if (l) setLoja(l);
 if (r) setRegional(r);
 if (c) setColaborador(c);
@@ -934,7 +971,7 @@ if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
   setThemePreference(modoTema);
   setTempThemePreference(modoTema);
 }
-const modoA11y = await AsyncStorage.getItem(CHAVE_MODO_ACESSIBILIDADE);
+const modoA11y = configuracoes[CHAVE_MODO_ACESSIBILIDADE];
 setModoAcessibilidade(modoA11y === 'true');
 setTempModoAcessibilidade(modoA11y === 'true');
 
@@ -999,7 +1036,11 @@ setTempModoAcessibilidade(modoA11y === 'true');
   await garantirColuna(db, 'ean_cache', 'quantidade_medida REAL DEFAULT 0');
   await garantirColuna(db, 'historico_produtos', 'tipo_produto TEXT');
 
-  const primeiraInstalacaoConcluida = await AsyncStorage.getItem(CHAVE_PRIMEIRA_INSTALACAO);
+  for (const sqlIndice of INDICES_SQLITE) {
+    await db.runAsync(sqlIndice);
+  }
+
+  const primeiraInstalacaoConcluida = configuracoes[CHAVE_PRIMEIRA_INSTALACAO];
   if (!primeiraInstalacaoConcluida) {
     await db.withTransactionAsync(async () => {
       await db.runAsync('DELETE FROM produtos');
@@ -1014,7 +1055,7 @@ setTempModoAcessibilidade(modoA11y === 'true');
   const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
   setProdutos(todosProdutos);
   await carregarHistorico();
-  const onboardingConcluido = await AsyncStorage.getItem(CHAVE_ONBOARDING_CONCLUIDO);
+  const onboardingConcluido = configuracoes[CHAVE_ONBOARDING_CONCLUIDO];
   if (!onboardingConcluido) setShowOnboarding(true);
   
 } catch (error) {
@@ -1038,6 +1079,106 @@ useEffect(() => {
 void agendarLembreteRecorrente();
 }, [agendarLembreteRecorrente]);
 
+const animarSaidaSidebar = useCallback(() => new Promise<void>((resolve) => {
+if (fechandoSidebarRef.current) {
+  resolve();
+  return;
+}
+
+fechandoSidebarRef.current = true;
+
+Animated.parallel([
+  Animated.timing(deslocamentoSidebar, {
+    toValue: 28,
+    duration: 220,
+    easing: Easing.in(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadePainelModal, {
+    toValue: 0,
+    duration: 180,
+    easing: Easing.in(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start(() => {
+  fechandoSidebarRef.current = false;
+  resolve();
+});
+}), [deslocamentoSidebar, opacidadePainelModal]);
+
+const fecharMenuLateral = useCallback(async () => {
+await animarSaidaSidebar();
+setShowMenuLateral(false);
+}, [animarSaidaSidebar]);
+
+const executarAposFecharMenuLateral = useCallback(async (acao: () => void | Promise<void>) => {
+await fecharMenuLateral();
+await acao();
+}, [fecharMenuLateral]);
+
+const animarSaidaDialogo = useCallback(() => new Promise<void>((resolve) => {
+if (fechandoDialogoRef.current) {
+  resolve();
+  return;
+}
+
+fechandoDialogoRef.current = true;
+
+Animated.parallel([
+  Animated.timing(deslocamentoDialogo, {
+    toValue: 12,
+    duration: 200,
+    easing: Easing.in(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(escalaDialogo, {
+    toValue: 0.96,
+    duration: 200,
+    easing: Easing.in(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadeDialogo, {
+    toValue: 0,
+    duration: 160,
+    easing: Easing.in(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start(() => {
+  fechandoDialogoRef.current = false;
+  resolve();
+});
+}), [deslocamentoDialogo, escalaDialogo, opacidadeDialogo]);
+
+const fecharConfiguracoes = useCallback(async () => {
+await animarSaidaDialogo();
+setShowConfig(false);
+}, [animarSaidaDialogo]);
+
+const fecharFiltrosAvancados = useCallback(async () => {
+await animarSaidaDialogo();
+setShowFiltrosAvancados(false);
+}, [animarSaidaDialogo]);
+
+const fecharGraficoStatus = useCallback(async () => {
+await animarSaidaDialogo();
+setShowGraficoStatus(false);
+}, [animarSaidaDialogo]);
+
+const fecharDatePickerAdicionalIOS = useCallback(async () => {
+await animarSaidaDialogo();
+setShowDatePickerAdicional(false);
+}, [animarSaidaDialogo]);
+
+const fecharDatePickerIOS = useCallback(async () => {
+await animarSaidaDialogo();
+setShowDatePicker(false);
+}, [animarSaidaDialogo]);
+
+const fecharHistoricoDatePickerIOS = useCallback(async () => {
+await animarSaidaDialogo();
+setShowHistoricoDatePicker(false);
+}, [animarSaidaDialogo]);
+
 const abrirConfiguracoes = useCallback(() => {
 setTempLoja(loja);
 setTempRegional(regional);
@@ -1050,19 +1191,25 @@ setShowConfig(true);
 
 const salvarConfiguracoes = async () => {
 try {
-await AsyncStorage.setItem('@loja', tempLoja.toUpperCase());
-await AsyncStorage.setItem('@regional', tempRegional.toUpperCase());
-await AsyncStorage.setItem('@colaborador', tempColaborador);
-await AsyncStorage.setItem(CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false');
-await AsyncStorage.setItem(CHAVE_MODO_TEMA, tempThemePreference);
-await AsyncStorage.setItem(CHAVE_MODO_ACESSIBILIDADE, tempModoAcessibilidade ? 'true' : 'false');
-setLoja(tempLoja.toUpperCase());
-setRegional(tempRegional.toUpperCase());
+const lojaNormalizada = tempLoja.toUpperCase();
+const regionalNormalizada = tempRegional.toUpperCase();
+
+await AsyncStorage.multiSet([
+  [CHAVE_LOJA, lojaNormalizada],
+  [CHAVE_REGIONAL, regionalNormalizada],
+  [CHAVE_COLABORADOR, tempColaborador],
+  [CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false'],
+  [CHAVE_MODO_TEMA, tempThemePreference],
+  [CHAVE_MODO_ACESSIBILIDADE, tempModoAcessibilidade ? 'true' : 'false'],
+]);
+
+setLoja(lojaNormalizada);
+setRegional(regionalNormalizada);
 setColaborador(tempColaborador);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
 setThemePreference(tempThemePreference);
 setModoAcessibilidade(tempModoAcessibilidade);
-setShowConfig(false);
+await fecharConfiguracoes();
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
 }
@@ -1082,7 +1229,7 @@ setHistorico([]);
 await AsyncStorage.removeItem(CHAVE_BASE_INTERNA);
 await AsyncStorage.setItem(CHAVE_PRIMEIRA_INSTALACAO, 'ok');
 await inicializarApp();
-setShowConfig(false);
+await fecharConfiguracoes();
 Alert.alert("Sucesso", "Base SQLite atual foi recriada com sucesso.");
 } catch (error) {
 const mensagem = error instanceof Error ? error.message : "Falha ao resetar a base SQLite atual.";
@@ -1146,18 +1293,26 @@ setDataValidadeSelecionada(converterDataParaDate(novaValidade));
 setShowDatePicker(true);
 };
 
-const confirmarDatePicker = (novaData: Date) => {
+const confirmarDatePicker = async (novaData: Date) => {
 const year = novaData.getFullYear();
 const month = String(novaData.getMonth() + 1).padStart(2, '0');
 const day = String(novaData.getDate()).padStart(2, '0');
 setDataValidadeSelecionada(novaData);
 setNovaValidade(`${year}-${month}-${day}`);
-setShowDatePicker(false);
+if (Platform.OS === 'ios') {
+  await fecharDatePickerIOS();
+} else {
+  setShowDatePicker(false);
+}
 };
 
 const aoMudarDatePicker = (evento: DateTimePickerEvent, data?: Date) => {
 if (evento.type === 'dismissed') {
-  setShowDatePicker(false);
+  if (Platform.OS === 'ios') {
+    void fecharDatePickerIOS();
+  } else {
+    setShowDatePicker(false);
+  }
   return;
 }
 
@@ -1165,7 +1320,7 @@ const dataSelecionada = data ?? dataValidadeSelecionada;
 setDataValidadeSelecionada(dataSelecionada);
 
 if (Platform.OS === 'android') {
-  confirmarDatePicker(dataSelecionada);
+  void confirmarDatePicker(dataSelecionada);
 }
 };
 
@@ -1174,24 +1329,32 @@ setDataValidadeAdicionalSelecionada(new Date());
 setShowDatePickerAdicional(true);
 };
 
-const confirmarDatePickerAdicional = (novaData: Date) => {
+const confirmarDatePickerAdicional = async (novaData: Date) => {
 const year = novaData.getFullYear();
 const month = String(novaData.getMonth() + 1).padStart(2, '0');
 const day = String(novaData.getDate()).padStart(2, '0');
 const isoDate = `${year}-${month}-${day}`;
 setNovasValidadesAdicionais(prev => prev.includes(isoDate) ? prev : [...prev, isoDate]);
-setShowDatePickerAdicional(false);
+if (Platform.OS === 'ios') {
+  await fecharDatePickerAdicionalIOS();
+} else {
+  setShowDatePickerAdicional(false);
+}
 };
 
 const aoMudarDatePickerAdicional = (evento: DateTimePickerEvent, data?: Date) => {
 if (evento.type === 'dismissed') {
-  setShowDatePickerAdicional(false);
+  if (Platform.OS === 'ios') {
+    void fecharDatePickerAdicionalIOS();
+  } else {
+    setShowDatePickerAdicional(false);
+  }
   return;
 }
 const dataSelecionada = data ?? dataValidadeAdicionalSelecionada;
 setDataValidadeAdicionalSelecionada(dataSelecionada);
 if (Platform.OS === 'android') {
-  confirmarDatePickerAdicional(dataSelecionada);
+  void confirmarDatePickerAdicional(dataSelecionada);
 }
 };
 
@@ -1201,7 +1364,7 @@ setDataHistoricoSelecionada(converterDataParaDate(alvo === 'inicio' ? filtroHist
 setShowHistoricoDatePicker(true);
 };
 
-const confirmarDatePickerHistorico = (novaData: Date) => {
+const confirmarDatePickerHistorico = async (novaData: Date) => {
 const year = novaData.getFullYear();
 const month = String(novaData.getMonth() + 1).padStart(2, '0');
 const day = String(novaData.getDate()).padStart(2, '0');
@@ -1214,12 +1377,20 @@ if (alvoDatePickerHistorico === 'inicio') {
   setFiltroHistoricoDataFim(valorFormatado);
 }
 
-setShowHistoricoDatePicker(false);
+if (Platform.OS === 'ios') {
+  await fecharHistoricoDatePickerIOS();
+} else {
+  setShowHistoricoDatePicker(false);
+}
 };
 
 const aoMudarDatePickerHistorico = (evento: DateTimePickerEvent, data?: Date) => {
 if (evento.type === 'dismissed') {
-  setShowHistoricoDatePicker(false);
+  if (Platform.OS === 'ios') {
+    void fecharHistoricoDatePickerIOS();
+  } else {
+    setShowHistoricoDatePicker(false);
+  }
   return;
 }
 
@@ -1227,7 +1398,7 @@ const dataSelecionada = data ?? dataHistoricoSelecionada;
 setDataHistoricoSelecionada(dataSelecionada);
 
 if (Platform.OS === 'android') {
-  confirmarDatePickerHistorico(dataSelecionada);
+  void confirmarDatePickerHistorico(dataSelecionada);
 }
 };
 
@@ -1325,7 +1496,7 @@ const montarLinhasProdutos = (lista: Produto[]) => [
   ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Lote', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
   ...lista.map((p: Produto) => {
     const validadePrioritaria = extrairValidadeMaisProxima(p.validade, p.validades_adicionais);
-    const adicionais = p.validades_adicionais ? (JSON.parse(p.validades_adicionais) as string[]).map(formataDataBR).join(' | ') : '';
+    const adicionais = lerListaJson(p.validades_adicionais).map(formataDataBR).join(' | ');
     return [
       p.nome || '',
       p.apresentacao || '',
@@ -1455,6 +1626,51 @@ try {
 }
 }, [colaborador, exibirNotificacao]);
 
+const animarSaidaBottomSheet = useCallback(() => new Promise<void>((resolve) => {
+if (fechandoBottomSheetRef.current) {
+  resolve();
+  return;
+}
+
+fechandoBottomSheetRef.current = true;
+
+Animated.parallel([
+  Animated.timing(deslocamentoBottomSheet, {
+    toValue: 36,
+    duration: 220,
+    easing: Easing.in(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadePainelModal, {
+    toValue: 0,
+    duration: 180,
+    easing: Easing.in(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start(() => {
+  fechandoBottomSheetRef.current = false;
+  resolve();
+});
+}), [deslocamentoBottomSheet, opacidadePainelModal]);
+
+const fecharResumoTurno = useCallback(async () => {
+await animarSaidaBottomSheet();
+setShowResumoTurno(false);
+}, [animarSaidaBottomSheet]);
+
+const fecharHistorico = useCallback(async () => {
+await animarSaidaBottomSheet();
+setShowHistorico(false);
+}, [animarSaidaBottomSheet]);
+
+const voltarDaSelecaoImportacao = useCallback(async () => {
+await animarSaidaBottomSheet();
+setShowImportPreview(false);
+setItensImportacaoPreview([]);
+setNomeArquivoImportacao('');
+setFiltroImportPreview('');
+}, [animarSaidaBottomSheet]);
+
 const importarProdutosDaPreview = useCallback(async (listaProdutos: Produto[]) => {
 if (importacaoEmAndamentoRef.current) return;
 
@@ -1484,10 +1700,7 @@ try {
   const todosProdutos = await db.getAllAsync('SELECT * FROM produtos');
   setProdutos(todosProdutos as Produto[]);
   await carregarHistorico();
-  setShowImportPreview(false);
-  setItensImportacaoPreview([]);
-  setNomeArquivoImportacao('');
-  setFiltroImportPreview('');
+  await voltarDaSelecaoImportacao();
   Alert.alert('Sucesso', `${listaProdutos.length} produtos importados com sucesso!`);
 } catch (error) {
   const mensagem = error instanceof Error ? error.message : 'Falha ao gravar importação na base de dados.';
@@ -1496,14 +1709,7 @@ try {
   importacaoEmAndamentoRef.current = false;
   setImportandoPreview(false);
 }
-}, [abrirBanco, carregarHistorico, registrarHistorico]);
-
-const voltarDaSelecaoImportacao = useCallback(() => {
-setShowImportPreview(false);
-setItensImportacaoPreview([]);
-setNomeArquivoImportacao('');
-setFiltroImportPreview('');
-}, []);
+}, [abrirBanco, carregarHistorico, registrarHistorico, voltarDaSelecaoImportacao]);
 
 const importarDeExcel = async () => {
 try {
@@ -1812,7 +2018,7 @@ setNovaUnidadeMedida(p.unidade_medida || inferirMedidaDaApresentacao(p.apresenta
 setNovaQuantidadeMedida(p.quantidade_medida ? String(p.quantidade_medida) : '');
 setNovaQtd(p.qtd.toString());
 setNovaValidade(p.validade);
-const adicionais = p.validades_adicionais ? JSON.parse(p.validades_adicionais) as string[] : [];
+const adicionais = lerListaJson(p.validades_adicionais);
 setNovasValidadesAdicionais(adicionais);
 setNovoLote(p.lote || '');
 setNovaObservacao(p.observacao || '');
@@ -1831,7 +2037,6 @@ setNovaUnidadeMedida('unidades');
 setNovaQuantidadeMedida('');
 setNovaValidade('');
 setNovasValidadesAdicionais([]);
-setNovaValidadeAdicionada('');
 setNovaQtd('');
 setNovoLote('');
 setNovaObservacao('');
@@ -2032,16 +2237,19 @@ return {
 
 const produtosFiltrados = useMemo(() => {
 const termoBuscaNormalizado = termoBuscaAdiado.trim().toLowerCase();
+const filtroColaboradorNormalizado = filtroColaborador.trim().toLowerCase();
 
 return produtosComAnalise.filter((produto) => {
-  const correspondeBusca = produto.nome.toLowerCase().includes(termoBuscaNormalizado) || produto.codigo.includes(termoBuscaAdiado);
+  const correspondeBusca = !termoBuscaNormalizado
+    || produto.nome.toLowerCase().includes(termoBuscaNormalizado)
+    || produto.codigo.toLowerCase().includes(termoBuscaNormalizado);
   if (!correspondeBusca) return false;
 
   if (filtroValidade === 'vencidos') return produto.statusValidade.tipo === 'vencido';
   if (filtroValidade === 'proximos') return produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'markdown';
   if (filtroValidade === 'no_prazo') return produto.statusValidade.tipo === 'ok';
 
-  if (filtroColaborador && !(produto.colaborador || '').toLowerCase().includes(filtroColaborador.toLowerCase())) return false;
+  if (filtroColaboradorNormalizado && !(produto.colaborador || '').toLowerCase().includes(filtroColaboradorNormalizado)) return false;
   if (filtroStatusConferencia !== 'todos' && (produto.status_conferencia || 'pendente') !== filtroStatusConferencia) return false;
   if (filtroUnidadeMedida !== 'todos' && (produto.unidade_medida || 'unidades') !== filtroUnidadeMedida) return false;
   if (filtroEmbalagem !== 'todos' && (produto.embalagemCalculada || '') !== filtroEmbalagem) return false;
@@ -2060,6 +2268,11 @@ return produtosComAnalise.filter((produto) => {
   return a.diasAteValidade - b.diasAteValidade;
 });
 }, [filtroColaborador, filtroEmbalagem, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
+
+const extraDataListaProdutos = useMemo(
+  () => ({ modoAcessibilidade, produtoSwipeado, isDark }),
+  [isDark, modoAcessibilidade, produtoSwipeado]
+);
 
 const totaisMedidosFiltrados = useMemo(() => resumirTotaisMedidos(produtosFiltrados), [produtosFiltrados]);
 const { totalQtdAuditada, qtdMarkdown, qtdRiscoImediato, qtdVence7, qtdVence15, qtdVence30, resumoPorColaborador } = resumoKpis;
@@ -2148,7 +2361,6 @@ const exportarResumoPdfComTimestamp = useCallback(async () => {
     `;
     
     const { uri } = await Print.printToFileAsync({ html });
-    const fileName = `Resumo_${sanitizarTrechoArquivo(loja)}_${Date.now()}.pdf`;
     
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(uri, {
@@ -2385,6 +2597,7 @@ void carregarResumoBaseInterna();
 }, [showMenuLateral]);
 
 const algumBottomSheetAberto = showResumoTurno || showHistorico || showImportPreview;
+const algumDialogoCentralAberto = showConfig || showFiltrosAvancados || showGraficoStatus || (showDatePickerAdicional && Platform.OS === 'ios') || (showDatePicker && Platform.OS === 'ios') || (showHistoricoDatePicker && Platform.OS === 'ios');
 
 useEffect(() => {
 if (!algumBottomSheetAberto) return;
@@ -2407,6 +2620,35 @@ Animated.parallel([
   }),
 ]).start();
 }, [algumBottomSheetAberto, deslocamentoBottomSheet, opacidadePainelModal]);
+
+useEffect(() => {
+if (!algumDialogoCentralAberto) return;
+
+deslocamentoDialogo.setValue(12);
+escalaDialogo.setValue(0.96);
+opacidadeDialogo.setValue(0);
+
+Animated.parallel([
+  Animated.timing(deslocamentoDialogo, {
+    toValue: 0,
+    duration: 240,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(escalaDialogo, {
+    toValue: 1,
+    duration: 240,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: true,
+  }),
+  Animated.timing(opacidadeDialogo, {
+    toValue: 1,
+    duration: 220,
+    easing: Easing.out(Easing.quad),
+    useNativeDriver: true,
+  }),
+]).start();
+}, [algumDialogoCentralAberto, deslocamentoDialogo, escalaDialogo, opacidadeDialogo]);
 
 // ==========================================
 // RENDER UI NATIVO
@@ -2478,15 +2720,17 @@ return (
     style={[styles.content, { backgroundColor: theme.background }]}
     contentContainerStyle={[styles.contentContainer, isTablet && styles.contentContainerWide]}
     keyboardShouldPersistTaps="handled"
+    keyboardDismissMode="on-drag"
     data={produtosFiltrados}
     renderItem={renderProdutoItem}
     keyExtractor={(item) => item.id}
-    extraData={[modoAcessibilidade, produtoSwipeado, isDark]}
+    extraData={extraDataListaProdutos}
     ListHeaderComponent={renderListaHeader}
     ListFooterComponent={<View style={{height: 88}} />}
     removeClippedSubviews={Platform.OS === 'android'}
     initialNumToRender={10}
     maxToRenderPerBatch={12}
+    updateCellsBatchingPeriod={50}
     windowSize={7}
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={recarregarProdutos} colors={['#565DF0']} tintColor="#565DF0" />
@@ -2499,7 +2743,7 @@ return (
   </TouchableOpacity>
 
   {/* MODAL: FORMULÁRIO DE REGISTO */}
-  <Modal visible={showForm} animationType="fade" presentationStyle="formSheet">
+  <Modal visible={showForm} animationType="fade" presentationStyle="formSheet" onRequestClose={limparFormulario}>
     <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
       <View style={[styles.modalHeader, isCompact && styles.modalHeaderCompact, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}> 
         <View style={[styles.modalHeadingWrap, isCompact && styles.modalHeadingWrapCompact]}>
@@ -2595,23 +2839,26 @@ return (
   </Modal>
 
   {/* MODAL: CONFIGURAÇÕES */}
-  <Modal visible={showConfig} transparent={true} animationType="fade">
+  <Modal visible={showConfig} transparent={true} animationType="fade" onRequestClose={fecharConfiguracoes}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharConfiguracoes} />
+      <Animated.View style={[styles.dialogBox, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
            <Text style={[styles.dialogTitle, { color: theme.title }]}>Definições</Text>
-           <TouchableOpacity onPress={() => setShowConfig(false)}><X/></TouchableOpacity>
+           <TouchableOpacity onPress={fecharConfiguracoes}><X/></TouchableOpacity>
         </View>
         
-        <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
+
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
         <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempColaborador} onChangeText={setTempColaborador} placeholderTextColor={theme.muted} />
 
-        <View style={styles.row}>
-          <View style={{flex: 1, marginRight: 10}}>
+          <View style={[styles.row, isCompact && { flexDirection: 'column' }]}>
+            <View style={{ flex: 1, marginRight: isCompact ? 0 : 10 }}>
             <Text style={[styles.label, { color: theme.muted }]}>LOJA ATUAL</Text>
             <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
-          <View style={{flex: 1}}>
+            <View style={{ flex: 1 }}>
             <Text style={[styles.label, { color: theme.muted }]}>REGIONAL</Text>
             <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
@@ -2677,27 +2924,28 @@ return (
           <Text style={styles.btnDialogActionText}>Guardar Alterações</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.btnDialogAction, styles.btnDialogSecondary]} onPress={() => setShowConfig(false)}>
+        <TouchableOpacity style={[styles.btnDialogAction, styles.btnDialogSecondary]} onPress={fecharConfiguracoes}>
           <Text style={styles.btnDialogSecondaryText}>Fechar</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.btnDialogDanger} onPress={limparBancoDeDados}>
           <Text style={styles.btnDialogDangerText}>Apagar Base de Dados (SQLite)</Text>
         </TouchableOpacity>
-      </View>
+          </ScrollView>
+      </Animated.View>
     </View>
   </Modal>
 
-  <Modal visible={showMenuLateral} transparent={true} animationType="fade">
+  <Modal visible={showMenuLateral} transparent={true} animationType="fade" onRequestClose={fecharMenuLateral}>
     <View style={[styles.sidebarOverlay, { backgroundColor: theme.sidebarOverlay }]}>
-      <TouchableOpacity style={styles.sidebarBackdrop} activeOpacity={1} onPress={() => setShowMenuLateral(false)} />
+      <TouchableOpacity style={styles.sidebarBackdrop} activeOpacity={1} onPress={fecharMenuLateral} />
       <Animated.View style={[styles.sidebarPanel, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateX: deslocamentoSidebar }] }]}> 
         <View style={styles.sidebarHeader}>
           <View>
             <Text style={[styles.sidebarTitle, { color: theme.text }]}>Menu</Text>
             <Text style={[styles.sidebarSubtitle, { color: theme.muted }]}>Acesso rápido e gestão</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowMenuLateral(false)} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={20} /></TouchableOpacity>
+          <TouchableOpacity onPress={fecharMenuLateral} style={[styles.btnCloseModal, { backgroundColor: theme.closeBg }]}><X size={20} /></TouchableOpacity>
         </View>
 
         <ScrollView style={styles.sidebarScroll} contentContainerStyle={styles.sidebarScrollContent} showsVerticalScrollIndicator={false}>
@@ -2706,10 +2954,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            setShowResumoTurno(true);
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(() => setShowResumoTurno(true)); }}>
           <Activity size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Resumo do Turno</Text>
@@ -2719,10 +2964,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#A78BFA', backgroundColor: '#F3E8FF', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            setShowGraficoStatus(true);
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(() => setShowGraficoStatus(true)); }}>
           <TrendingUp size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#6D28D9' }]}>Gráfico de Status</Text>
@@ -2732,10 +2974,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#F87171', backgroundColor: '#FEE2E2', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            exportarResumoPdfComTimestamp();
-          }}
+          onPress={() => { void executarAposFecharMenuLateral(exportarResumoPdfComTimestamp); }}
           disabled={exportandoPdf}>
           <Download size={18} />
           <View style={styles.sidebarActionTextWrap}>
@@ -2746,10 +2985,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            setShowHistorico(true);
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(() => setShowHistorico(true)); }}>
           <Bell size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Histórico</Text>
@@ -2761,10 +2997,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#34D399', backgroundColor: '#ECFDF5' }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            exportarParaExcel();
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(exportarParaExcel); }}>
           <Download size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#047857' }]}>Salvar Interno</Text>
@@ -2774,10 +3007,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#FCD34D', backgroundColor: '#FFFBEB', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            baixarModeloPlanilha();
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(baixarModeloPlanilha); }}>
           <Download size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#92400E' }]}>Baixar Modelo</Text>
@@ -2787,10 +3017,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            importarDeExcel();
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(importarDeExcel); }}>
           <Upload size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Importar Produtos</Text>
@@ -2800,10 +3027,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#C084FC', backgroundColor: '#FAF5FF', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            importarBaseInternaEan();
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(importarBaseInternaEan); }}>
           <Upload size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#6B21A8' }]}>Importar Base EAN</Text>
@@ -2813,10 +3037,7 @@ return (
 
         <TouchableOpacity
           style={[styles.sidebarAction, { borderColor: '#C7D2FE', backgroundColor: '#EEF2FF', marginTop: 12 }]}
-          onPress={() => {
-            setShowMenuLateral(false);
-            abrirConfiguracoes();
-          }}>
+          onPress={() => { void executarAposFecharMenuLateral(abrirConfiguracoes); }}>
           <Edit2 size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#3730A3' }]}>Configurações</Text>
@@ -2836,15 +3057,16 @@ return (
   </Modal>
 
   {/* MODAL: RESUMO TURNO */}
-  <Modal visible={showResumoTurno} transparent={true} animationType="fade">
+  <Modal visible={showResumoTurno} transparent={true} animationType="fade" onRequestClose={fecharResumoTurno}>
     <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharResumoTurno} />
       <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
            <View style={{flexDirection:'row', alignItems:'center', gap: 8}}>
              <View style={{backgroundColor:'#EEF0FF', padding:8, borderRadius:12}}><Bell/></View>
              <Text style={[styles.dialogTitle, { color: theme.title }]}>Resumo do Turno</Text>
            </View>
-           <TouchableOpacity onPress={() => setShowResumoTurno(false)}><X/></TouchableOpacity>
+           <TouchableOpacity onPress={fecharResumoTurno}><X/></TouchableOpacity>
         </View>
         <Text style={[styles.hintText, { color: theme.muted }]}>PENDÊNCIAS NA ÁREA DE VENDAS:</Text>
         
@@ -2886,12 +3108,13 @@ return (
     </View>
   </Modal>
 
-  <Modal visible={showFiltrosAvancados} transparent={true} animationType="fade">
+  <Modal visible={showFiltrosAvancados} transparent={true} animationType="fade" onRequestClose={fecharFiltrosAvancados}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.dialogBox, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharFiltrosAvancados} />
+      <Animated.View style={[styles.dialogBox, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Filtros Avançados</Text>
-          <TouchableOpacity onPress={() => setShowFiltrosAvancados(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharFiltrosAvancados}><X/></TouchableOpacity>
         </View>
 
         <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
@@ -2923,7 +3146,7 @@ return (
           ))}
         </View>
 
-        <TouchableOpacity style={styles.btnDialogAction} onPress={() => setShowFiltrosAvancados(false)}>
+        <TouchableOpacity style={styles.btnDialogAction} onPress={fecharFiltrosAvancados}>
           <Text style={styles.btnDialogActionText}>Aplicar</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.btnDialogDanger} onPress={() => {
@@ -2934,17 +3157,19 @@ return (
         }}>
           <Text style={styles.btnDialogDangerText}>Limpar Filtros</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
-  <Modal visible={showHistorico} transparent={true} animationType="fade">
+  <Modal visible={showHistorico} transparent={true} animationType="fade" onRequestClose={fecharHistorico}>
     <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharHistorico} />
       <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Histórico</Text>
-          <TouchableOpacity onPress={() => setShowHistorico(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharHistorico}><X/></TouchableOpacity>
         </View>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }}>
         <Text style={[styles.label, { color: theme.muted }]}>PERÍODO</Text>
         <View style={styles.historyDateRangeRow}>
           <View style={styles.historyDateRangeField}>
@@ -2986,7 +3211,7 @@ return (
             ))}
           </View>
         </ScrollView>
-        <ScrollView style={styles.historyList}>
+        <View style={styles.historyList}>
           {historicoFiltrado.map((item) => (
             <View key={item.id} style={[styles.historyCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
               <Text style={[styles.historyTitle, { color: theme.text }]}>{item.acao.toUpperCase()} • {item.nome}</Text>
@@ -2997,13 +3222,15 @@ return (
             </View>
           ))}
           {historicoFiltrado.length === 0 ? <Text style={[styles.hintText, { color: theme.muted }]}>Nenhum registro encontrado para os filtros selecionados.</Text> : null}
+        </View>
         </ScrollView>
       </Animated.View>
     </View>
   </Modal>
 
-  <Modal visible={showImportPreview} transparent={true} animationType="fade">
+  <Modal visible={showImportPreview} transparent={true} animationType="fade" onRequestClose={voltarDaSelecaoImportacao}>
     <View style={[styles.overlayBottomModal, { backgroundColor: theme.bottomOverlay }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={voltarDaSelecaoImportacao} />
       <Animated.View style={[styles.bottomSheet, isCompact && styles.bottomSheetCompact, isTablet && styles.bottomSheetWide, { backgroundColor: theme.surface, opacity: opacidadePainelModal, transform: [{ translateY: deslocamentoBottomSheet }] }] }>
         <View style={styles.dialogHeader}>
           <View style={styles.previewHeaderTextWrap}>
@@ -3095,12 +3322,13 @@ return (
     </View>
   </Modal>
 
-  <Modal visible={showDatePickerAdicional && Platform.OS === 'ios'} transparent={true} animationType="fade">
+  <Modal visible={showDatePickerAdicional && Platform.OS === 'ios'} transparent={true} animationType="fade" onRequestClose={fecharDatePickerAdicionalIOS}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharDatePickerAdicionalIOS} />
+      <Animated.View style={[styles.datePickerDialog, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Validade extra</Text>
-          <TouchableOpacity onPress={() => setShowDatePickerAdicional(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharDatePickerAdicionalIOS}><X/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataValidadeAdicionalSelecionada}
@@ -3108,10 +3336,10 @@ return (
           display="spinner"
           onChange={aoMudarDatePickerAdicional}
         />
-        <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePickerAdicional(dataValidadeAdicionalSelecionada)}>
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => { void confirmarDatePickerAdicional(dataValidadeAdicionalSelecionada); }}>
           <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
@@ -3124,12 +3352,13 @@ return (
     />
   ) : null}
 
-  <Modal visible={showDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
+  <Modal visible={showDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade" onRequestClose={fecharDatePickerIOS}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharDatePickerIOS} />
+      <Animated.View style={[styles.datePickerDialog, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Selecionar validade</Text>
-          <TouchableOpacity onPress={() => setShowDatePicker(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharDatePickerIOS}><X/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataValidadeSelecionada}
@@ -3137,10 +3366,10 @@ return (
           display="spinner"
           onChange={aoMudarDatePicker}
         />
-        <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePicker(dataValidadeSelecionada)}>
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => { void confirmarDatePicker(dataValidadeSelecionada); }}>
           <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
@@ -3153,12 +3382,13 @@ return (
     />
   ) : null}
 
-  <Modal visible={showHistoricoDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade">
+  <Modal visible={showHistoricoDatePicker && Platform.OS === 'ios'} transparent={true} animationType="fade" onRequestClose={fecharHistoricoDatePickerIOS}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.datePickerDialog, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharHistoricoDatePickerIOS} />
+      <Animated.View style={[styles.datePickerDialog, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>{alvoDatePickerHistorico === 'inicio' ? 'Data inicial' : 'Data final'}</Text>
-          <TouchableOpacity onPress={() => setShowHistoricoDatePicker(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharHistoricoDatePickerIOS}><X/></TouchableOpacity>
         </View>
         <DateTimePicker
           value={dataHistoricoSelecionada}
@@ -3166,15 +3396,21 @@ return (
           display="spinner"
           onChange={aoMudarDatePickerHistorico}
         />
-        <TouchableOpacity style={styles.btnDialogAction} onPress={() => confirmarDatePickerHistorico(dataHistoricoSelecionada)}>
+        <TouchableOpacity style={styles.btnDialogAction} onPress={() => { void confirmarDatePickerHistorico(dataHistoricoSelecionada); }}>
           <Text style={styles.btnDialogActionText}>Confirmar Data</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
   {/* MODAL: ONBOARDING */}
-  <Modal visible={showOnboarding} animationType="fade">
+  <Modal
+    visible={showOnboarding}
+    animationType="fade"
+    onRequestClose={async () => {
+      await AsyncStorage.setItem(CHAVE_ONBOARDING_CONCLUIDO, 'ok');
+      setShowOnboarding(false);
+    }}>
     <SafeAreaView style={styles.onboardingContainer}>
       <View style={[styles.onboardingInner, isCompact && styles.onboardingInnerCompact]}>
         <View style={styles.onboardingHero}>
@@ -3239,12 +3475,13 @@ return (
   </Modal>
 
   {/* MODAL: GRÁFICO DE STATUS */}
-  <Modal visible={showGraficoStatus} transparent={true} animationType="fade">
+  <Modal visible={showGraficoStatus} transparent={true} animationType="fade" onRequestClose={fecharGraficoStatus}>
     <View style={[styles.overlayModal, { backgroundColor: theme.overlay }]}>
-      <View style={[styles.dialogBox, styles.chartDialog, { backgroundColor: theme.surface }]}>
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharGraficoStatus} />
+      <Animated.View style={[styles.dialogBox, styles.chartDialog, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
           <Text style={[styles.dialogTitle, { color: theme.title }]}>Distribuição de Vencimentos</Text>
-          <TouchableOpacity onPress={() => setShowGraficoStatus(false)}><X/></TouchableOpacity>
+          <TouchableOpacity onPress={fecharGraficoStatus}><X/></TouchableOpacity>
         </View>
         
         <ScrollView style={styles.chartScroll}>
@@ -3292,10 +3529,10 @@ return (
           )}
         </ScrollView>
 
-        <TouchableOpacity style={styles.btnDialogAction} onPress={() => setShowGraficoStatus(false)}>
+        <TouchableOpacity style={styles.btnDialogAction} onPress={fecharGraficoStatus}>
           <Text style={styles.btnDialogActionText}>Fechar</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   </Modal>
 
@@ -3482,7 +3719,7 @@ btnSalvarText: { color: '#fff', fontSize: 16, fontWeight: '900', textTransform: 
 buscando: { color: '#565DF0', fontSize: 12, marginTop: 6, fontWeight: 'bold' },
 
 overlayModal: { flex: 1, backgroundColor: 'rgba(26, 28, 90, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-dialogBox: { backgroundColor: '#fff', width: '100%', maxWidth: 760, borderRadius: 24, padding: 24 },
+dialogBox: { backgroundColor: '#fff', width: '100%', maxWidth: 760, borderRadius: 24, padding: 24, maxHeight: '90%' },
 datePickerDialog: { backgroundColor: '#fff', width: '100%', maxWidth: 560, borderRadius: 24, padding: 24 },
 dialogHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
 dialogTitle: { fontSize: 20, fontWeight: '900', color: '#1A1C5A', textTransform: 'uppercase' },
@@ -3524,7 +3761,7 @@ btnDialogDangerText: { color: '#EF4444', fontWeight: 'bold', fontSize: 14 },
 buttonDisabled: { opacity: 0.6 },
 
 overlayBottomModal: { flex: 1, backgroundColor: 'rgba(26, 28, 90, 0.5)', justifyContent: 'flex-end' },
-bottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+bottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '92%' },
 bottomSheetCompact: { padding: 18, paddingBottom: 28 },
 bottomSheetWide: { width: '100%', maxWidth: 760, alignSelf: 'center' },
 hintText: { color: '#6B7280', fontSize: 12, fontWeight: 'bold', marginBottom: 16 },
@@ -3558,7 +3795,7 @@ resumeMiniLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 1, textAlign:
 summaryRow: { backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginBottom: 10 },
 summaryName: { color: '#0F172A', fontSize: 14, fontWeight: '900', marginBottom: 4 },
 summaryMeta: { color: '#475569', fontSize: 12, fontWeight: '700' },
-historyList: { maxHeight: 380 },
+historyList: { marginTop: 12 },
 historyCard: { backgroundColor: '#F8FAFC', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', padding: 14, marginBottom: 10 },
 historyTitle: { color: '#0F172A', fontSize: 13, fontWeight: '900', marginBottom: 4 },
 historyText: { color: '#475569', fontSize: 12, fontWeight: '700', marginBottom: 2 },
