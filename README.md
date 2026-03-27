@@ -12,6 +12,12 @@ O projeto trabalha com:
 - histórico local de alterações
 - notificações locais de lembrete e risco
 
+## Privacidade
+
+Para publicação na Google Play, a política de privacidade está em:
+
+- [PRIVACY_POLICY.md](PRIVACY_POLICY.md)
+
 ## Visão Geral
 
 O app foi estruturado para uso operacional no dia a dia.

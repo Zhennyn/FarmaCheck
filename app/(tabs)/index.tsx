@@ -739,12 +739,12 @@ await db.closeAsync();
  bancoAbertoRef.current = null;
 }, []);
 
-const configurarNotificacoes = useCallback(async () => {
+const configurarNotificacoes = useCallback(async (solicitarPermissao = false) => {
 if (Platform.OS === 'web') return false;
 
 try {
   let statusPermissao = (await Notifications.getPermissionsAsync()).status;
-  if (statusPermissao !== 'granted') {
+  if (statusPermissao !== 'granted' && solicitarPermissao) {
     statusPermissao = (await Notifications.requestPermissionsAsync()).status;
   }
 
@@ -772,8 +772,40 @@ try {
 }
 }, []);
 
+const sincronizarEstadoNotificacoes = useCallback(async () => {
+if (Platform.OS === 'web') {
+  setNotificacoesHabilitadas(false);
+  return;
+}
+
+try {
+  const statusPermissao = (await Notifications.getPermissionsAsync()).status;
+  if (statusPermissao !== 'granted') {
+    setNotificacoesHabilitadas(false);
+    return;
+  }
+
+  const notificacaoExistente = await AsyncStorage.getItem(CHAVE_NOTIFICACAO_LEMBRETE);
+  if (!notificacaoExistente) {
+    setNotificacoesHabilitadas(false);
+    return;
+  }
+
+  const agendadas = await Notifications.getAllScheduledNotificationsAsync();
+  const lembreteAindaExiste = agendadas.some((item) => item.identifier === notificacaoExistente);
+  if (!lembreteAindaExiste) {
+    await AsyncStorage.removeItem(CHAVE_NOTIFICACAO_LEMBRETE);
+  }
+
+  setNotificacoesHabilitadas(lembreteAindaExiste);
+} catch (error) {
+  console.log('Nao foi possivel sincronizar o estado de notificacoes:', error);
+  setNotificacoesHabilitadas(false);
+}
+}, []);
+
 const agendarLembreteRecorrente = useCallback(async () => {
-if (!(await configurarNotificacoes())) return;
+if (!(await configurarNotificacoes(true))) return false;
 
 try {
   const notificacaoExistente = await AsyncStorage.getItem(CHAVE_NOTIFICACAO_LEMBRETE);
@@ -800,14 +832,18 @@ try {
   });
 
   await AsyncStorage.setItem(CHAVE_NOTIFICACAO_LEMBRETE, identificador);
+  setNotificacoesHabilitadas(true);
+  return true;
 } catch (error) {
   console.log('Nao foi possivel agendar o lembrete recorrente:', error);
   await AsyncStorage.removeItem(CHAVE_NOTIFICACAO_LEMBRETE);
+  setNotificacoesHabilitadas(false);
+  return false;
 }
 }, [configurarNotificacoes]);
 
 const enviarNotificacaoLocal = useCallback(async (title: string, body: string) => {
-if (!(await configurarNotificacoes())) return;
+if (!(await configurarNotificacoes(false))) return;
 
 try {
   await Notifications.scheduleNotificationAsync({
@@ -1055,6 +1091,7 @@ setTempModoAcessibilidade(modoA11y === 'true');
   const todosProdutos = await db.getAllAsync('SELECT * FROM produtos') as Produto[];
   setProdutos(todosProdutos);
   await carregarHistorico();
+  await sincronizarEstadoNotificacoes();
   const onboardingConcluido = configuracoes[CHAVE_ONBOARDING_CONCLUIDO];
   if (!onboardingConcluido) setShowOnboarding(true);
   
@@ -1066,7 +1103,7 @@ setTempModoAcessibilidade(modoA11y === 'true');
 }
 
 
-}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico, garantirColuna]);
+}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico, garantirColuna, sincronizarEstadoNotificacoes]);
 
 // ==========================================
 // INICIALIZAÇÃO: ASYNC STORAGE & SQLITE
@@ -1074,10 +1111,6 @@ setTempModoAcessibilidade(modoA11y === 'true');
 useEffect(() => {
 inicializarApp();
 }, [inicializarApp]);
-
-useEffect(() => {
-void agendarLembreteRecorrente();
-}, [agendarLembreteRecorrente]);
 
 const animarSaidaSidebar = useCallback(() => new Promise<void>((resolve) => {
 if (fechandoSidebarRef.current) {
@@ -1284,6 +1317,39 @@ Animated.sequence([
   setShowNotificacao(false);
 });
 }, [deslocamentoNotificacao, opacidadeNotificacao]);
+
+const alternarLembretesRecorrentes = useCallback(async () => {
+if (Platform.OS === 'web') {
+  Alert.alert('Aviso', 'Notificacoes locais nao estao disponiveis na versao web.');
+  return;
+}
+
+try {
+  if (notificacoesHabilitadas) {
+    const identificador = await AsyncStorage.getItem(CHAVE_NOTIFICACAO_LEMBRETE);
+    if (identificador) {
+      await Notifications.cancelScheduledNotificationAsync(identificador);
+      await AsyncStorage.removeItem(CHAVE_NOTIFICACAO_LEMBRETE);
+    }
+
+    await AsyncStorage.removeItem(CHAVE_ULTIMO_ALERTA_RISCO);
+    setNotificacoesHabilitadas(false);
+    exibirNotificacao('Lembretes desativados.');
+    return;
+  }
+
+  const lembreteAtivado = await agendarLembreteRecorrente();
+  if (lembreteAtivado) {
+    exibirNotificacao('Lembretes ativados com sucesso.');
+    return;
+  }
+
+  Alert.alert('Permissao necessaria', 'Para ativar lembretes, permita notificacoes quando solicitado.');
+} catch (error) {
+  const mensagem = error instanceof Error ? error.message : 'Falha ao atualizar os lembretes locais.';
+  Alert.alert('Erro', mensagem);
+}
+}, [agendarLembreteRecorrente, exibirNotificacao, notificacoesHabilitadas]);
 
 // ==========================================
 // DATE PICKER PARA VALIDADE
@@ -2990,6 +3056,16 @@ return (
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: '#1D4ED8' }]}>Histórico</Text>
             <Text style={styles.sidebarActionSubtitle}>Últimas alterações registradas</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarAction, { borderColor: notificacoesHabilitadas ? '#FCA5A5' : '#86EFAC', backgroundColor: notificacoesHabilitadas ? '#FEF2F2' : '#F0FDF4', marginTop: 12 }]}
+          onPress={() => { void executarAposFecharMenuLateral(alternarLembretesRecorrentes); }}>
+          <Bell size={18} />
+          <View style={styles.sidebarActionTextWrap}>
+            <Text style={[styles.sidebarActionTitle, { color: notificacoesHabilitadas ? '#991B1B' : '#166534' }]}>{notificacoesHabilitadas ? 'Desativar Lembretes' : 'Ativar Lembretes'}</Text>
+            <Text style={styles.sidebarActionSubtitle}>{notificacoesHabilitadas ? 'Interrompe notificacoes periodicas' : 'Solicita permissao e ativa notificacoes'}</Text>
           </View>
         </TouchableOpacity>
 
