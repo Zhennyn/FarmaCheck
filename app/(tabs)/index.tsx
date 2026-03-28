@@ -1573,7 +1573,7 @@ const dataExportacao = new Date().toLocaleDateString('pt-BR', { day: '2-digit', 
 const fileName = `Validades_${sanitizarTrechoArquivo(loja)}_${Date.now()}.xlsx`;
 
 const montarLinhasProdutos = (lista: Produto[]) => [
-  ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Lote', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
+  ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
   ...lista.map((p: Produto) => {
     const validadePrioritaria = extrairValidadeMaisProxima(p.validade, p.validades_adicionais);
     const adicionais = lerListaJson(p.validades_adicionais).map(formataDataBR).join(' | ');
@@ -1587,7 +1587,6 @@ const montarLinhasProdutos = (lista: Produto[]) => [
       obterStatusDesconto(validadePrioritaria).label,
       p.qtd,
       p.colaborador || '',
-      p.lote || '',
       p.status_conferencia || 'pendente',
       p.unidade_medida || 'unidades',
       p.quantidade_medida || 0,
