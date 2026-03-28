@@ -387,6 +387,20 @@ const maisproxima = datas.reduce((prev, current) => {
 return maisproxima.toISOString().split('T')[0];
 };
 
+const obterResumoValidadesExtras = (validadesAdicionaisJson?: string) => {
+const validadesExtras = lerListaJson(validadesAdicionaisJson);
+const quantidade = validadesExtras.length;
+const possuiMultiplasValidades = quantidade > 0;
+const sufixoPlural = quantidade > 1 ? 's' : '';
+
+return {
+  validadesExtras,
+  possuiMultiplasValidades,
+  badgeTexto: `+${quantidade} validade${sufixoPlural} extra${sufixoPlural}`,
+  extrasTexto: `Extras: ${validadesExtras.map(formataDataBR).join(' | ')}`,
+};
+};
+
 export default function App() {
 const [isLoading, setIsLoading] = useState(true);
 const [permission, requestPermission] = useCameraPermissions();
@@ -2458,73 +2472,88 @@ const renderAcoesSwipeDireita = useCallback((produto: ProdutoComAnalise) => (
   </View>
 ), [iniciarEdicao, removerProduto]);
 
-const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => (
-  <Swipeable
-    ref={(instancia) => {
-      swipeRefs.current[p.id] = instancia;
-    }}
-    overshootRight={false}
-    rightThreshold={36}
-    friction={2}
-    overshootFriction={8}
-    renderRightActions={() => renderAcoesSwipeDireita(p)}
-    onSwipeableWillOpen={() => {
-      const outroAberto = swipeAbertoRef.current;
-      if (outroAberto && outroAberto !== p.id) {
-        swipeRefs.current[outroAberto]?.close();
-      }
-      swipeAbertoRef.current = p.id;
-      setProdutoSwipeado(p.id);
-      void Haptics.selectionAsync();
-    }}
-    onSwipeableOpen={() => {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }}
-    onSwipeableClose={() => {
-      if (swipeAbertoRef.current === p.id) swipeAbertoRef.current = null;
-      setProdutoSwipeado((atual) => (atual === p.id ? null : atual));
-    }}>
-  <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }, produtoSwipeado === p.id && styles.cardProdutoSwipeOpen, modoAcessibilidade && { padding: a11y.cardPad, borderWidth: 2 }]}>
-    <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
-      <View style={styles.cardHeaderInfo}>
-        <Text style={[styles.prodNome, { color: theme.text, fontSize: a11y.fNome }]}>{p.nome}</Text>
+const renderProdutoItem = useCallback(({ item: p }: { item: ProdutoComAnalise }) => {
+  const { possuiMultiplasValidades, badgeTexto, extrasTexto } = obterResumoValidadesExtras(p.validades_adicionais);
+  const validadePriorizada = extrairValidadeMaisProxima(p.validade, p.validades_adicionais);
+  const statusEmRisco = p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido';
+  const mostrarDetalhes = Boolean(p.lote || p.observacao);
 
-        <View style={styles.tagsRow}>
-          {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
-          {p.embalagemCalculada ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[p.embalagemCalculada]}</Text></View> : null}
-          <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
-          <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
-          <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
+  return (
+    <Swipeable
+      ref={(instancia) => {
+        swipeRefs.current[p.id] = instancia;
+      }}
+      overshootRight={false}
+      rightThreshold={36}
+      friction={2}
+      overshootFriction={8}
+      renderRightActions={() => renderAcoesSwipeDireita(p)}
+      onSwipeableWillOpen={() => {
+        const outroAberto = swipeAbertoRef.current;
+        if (outroAberto && outroAberto !== p.id) {
+          swipeRefs.current[outroAberto]?.close();
+        }
+        swipeAbertoRef.current = p.id;
+        setProdutoSwipeado(p.id);
+        void Haptics.selectionAsync();
+      }}
+      onSwipeableOpen={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }}
+      onSwipeableClose={() => {
+        if (swipeAbertoRef.current === p.id) swipeAbertoRef.current = null;
+        setProdutoSwipeado((atual) => (atual === p.id ? null : atual));
+      }}>
+      <View style={[styles.cardProduto, isTablet && styles.cardProdutoWide, { backgroundColor: theme.surface, borderColor: theme.border }, produtoSwipeado === p.id && styles.cardProdutoSwipeOpen, modoAcessibilidade && { padding: a11y.cardPad, borderWidth: 2 }]}>
+        <View style={[styles.cardTop, isCompact && styles.cardTopCompact]}>
+          <View style={styles.cardHeaderInfo}>
+            <Text style={[styles.prodNome, { color: theme.text, fontSize: a11y.fNome }]}>{p.nome}</Text>
+
+            <View style={styles.tagsRow}>
+              {p.apresentacao ? <View style={styles.tagApres}><Text style={styles.tagApresText}>{p.apresentacao}</Text></View> : null}
+              {p.embalagemCalculada ? <View style={styles.tagEmbalagem}><Text style={styles.tagEmbalagemText}>{ROTULOS_TIPO_EMBALAGEM[p.embalagemCalculada]}</Text></View> : null}
+              <View style={styles.tagTipo}><Text style={styles.tagTipoText}>{ROTULOS_UNIDADE_MEDIDA[p.unidade_medida || 'unidades']}</Text></View>
+              <View style={styles.tagStatusConferencia}><Text style={styles.tagStatusConferenciaText}>{ROTULOS_STATUS_CONFERENCIA[(p.status_conferencia || 'pendente') as StatusConferencia]}</Text></View>
+              <View style={[styles.tagColab, { backgroundColor: theme.chipBg, borderColor: theme.border }]}><User size={10} /><Text style={[styles.tagColabText, { color: theme.chipText }]}>{p.colaborador}</Text></View>
+            </View>
+
+            <View style={[styles.eanBox, { backgroundColor: theme.eanBg, borderColor: theme.border }]}><Barcode size={14} /><Text style={[styles.prodEan, { color: theme.chipText }]}>{p.codigo}</Text></View>
+            {mostrarDetalhes ? (
+              <View style={styles.detailList}>
+                {p.lote ? <Text style={[styles.detailText, { color: theme.muted }]}>Lote: {p.lote}</Text> : null}
+                {p.observacao ? <Text style={[styles.detailText, { color: theme.muted }]}>Obs: {p.observacao}</Text> : null}
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        <View style={[styles.eanBox, { backgroundColor: theme.eanBg, borderColor: theme.border }]}><Barcode size={14} /><Text style={[styles.prodEan, { color: theme.chipText }]}>{p.codigo}</Text></View>
-        {(p.lote || p.observacao) ? (
-          <View style={styles.detailList}>
-            {p.lote ? <Text style={[styles.detailText, { color: theme.muted }]}>Lote: {p.lote}</Text> : null}
-            {p.observacao ? <Text style={[styles.detailText, { color: theme.muted }]}>Obs: {p.observacao}</Text> : null}
+        <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
+          <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>QTD</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.qtd}</Text></View>
+          <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.totalMedidoCalculado || p.codigo}</Text></View>
+        </View>
+
+        <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }, modoAcessibilidade && { padding: 16, borderWidth: 2 }]}>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabelTitle, { color: p.statusValidade.cor }, modoAcessibilidade && { fontSize: 13 }]}>VENCIMENTO</Text>
+            <Text style={[styles.statusDateValue, { color: p.statusValidade.cor, fontSize: a11y.fStatus }]}>{formataDataBR(validadePriorizada)}</Text>
           </View>
-        ) : null}
+          {possuiMultiplasValidades ? (
+            <View style={styles.statusExtrasWrap}>
+              <View style={styles.statusExtrasBadge}>
+                <Text style={styles.statusExtrasBadgeText}>{badgeTexto}</Text>
+              </View>
+              <Text style={[styles.statusExtrasText, { color: theme.muted }]}>{extrasTexto}</Text>
+            </View>
+          ) : null}
+          <View style={[styles.statusBigTag, modoAcessibilidade && { padding: 12 }]}>
+            {statusEmRisco && <AlertTriangle size={a11y.iconSize} />}
+            <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor, fontSize: a11y.fStatusTag }]}>{p.statusValidade.label}</Text>
+          </View>
+        </View>
       </View>
-    </View>
-
-    <View style={[styles.cardBottom, isCompact && styles.cardBottomCompact]}>
-      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>QTD</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.qtd}</Text></View>
-      <View style={[styles.infoBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}><Text style={[styles.infoLabel, { color: theme.muted }]}>{p.totalMedidoCalculado ? 'TOTAL MEDIDO' : 'CÓDIGO'}</Text><Text style={[styles.infoValue, { color: theme.text, fontSize: a11y.fInfoValue }]}>{p.totalMedidoCalculado || p.codigo}</Text></View>
-    </View>
-
-    <View style={[styles.statusBoxFull, { backgroundColor: p.statusValidade.bg, borderColor: p.statusValidade.border }, modoAcessibilidade && { padding: 16, borderWidth: 2 }]}>
-      <View style={styles.statusRow}>
-        <Text style={[styles.statusLabelTitle, { color: p.statusValidade.cor }, modoAcessibilidade && { fontSize: 13 }]}>VENCIMENTO</Text>
-        <Text style={[styles.statusDateValue, { color: p.statusValidade.cor, fontSize: a11y.fStatus }]}>{formataDataBR(p.validade)}</Text>
-      </View>
-      <View style={[styles.statusBigTag, modoAcessibilidade && { padding: 12 }]}>
-        {(p.statusValidade.tipo === 'retirar' || p.statusValidade.tipo === 'vencido') && <AlertTriangle size={a11y.iconSize} />}
-        <Text style={[styles.statusBigTagText, { color: p.statusValidade.cor, fontSize: a11y.fStatusTag }]}>{p.statusValidade.label}</Text>
-      </View>
-    </View>
-  </View>
-  </Swipeable>
-), [a11y, isCompact, isTablet, modoAcessibilidade, produtoSwipeado, renderAcoesSwipeDireita, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
+    </Swipeable>
+  );
+}, [a11y, isCompact, isTablet, modoAcessibilidade, produtoSwipeado, renderAcoesSwipeDireita, theme.border, theme.borderSoft, theme.chipBg, theme.chipText, theme.eanBg, theme.muted, theme.surface, theme.surfaceAlt, theme.text]);
 
 const renderListaHeader = (
   <>
@@ -3743,6 +3772,10 @@ statusBoxFull: { padding: 12, borderRadius: 16, borderWidth: 1, marginTop: 4 },
 statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
 statusLabelTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
 statusDateValue: { fontSize: 16, fontWeight: '900' },
+statusExtrasWrap: { marginBottom: 8, gap: 6 },
+statusExtrasBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 10, paddingVertical: 4 },
+statusExtrasBadgeText: { fontSize: 11, fontWeight: '800', color: '#1F2937' },
+statusExtrasText: { fontSize: 12, fontWeight: '700', lineHeight: 18 },
 statusBigTag: { backgroundColor: 'rgba(255,255,255,0.6)', padding: 8, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
 statusBigTagText: { fontSize: 12, fontWeight: '900', letterSpacing: 1 },
 
