@@ -147,15 +147,18 @@ const ONBOARDING_STEPS = [
 ];
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
-const VERSAO_APP = '1.0.3';
+const VERSAO_APP = '1.0.4';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
 const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
 const CHAVE_ULTIMO_ALERTA_RISCO = '@notificacao_ultimo_alerta_risco';
+const CHAVE_FREQUENCIA_LEMBRETE_HORAS = '@frequencia_lembrete_horas';
+const CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS = '@frequencia_alerta_risco_horas';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const CHAVE_MODO_TEMA = '@modo_tema';
 const CHAVE_MODO_ACESSIBILIDADE = '@modo_acessibilidade';
 const CHAVE_LOJA = '@loja';
+const CHAVE_CODIGO_LOJA = '@codigo_loja';
 const CHAVE_REGIONAL = '@regional';
 const CHAVE_COLABORADOR = '@colaborador';
 
@@ -163,14 +166,22 @@ const CHAVE_ONBOARDING_CONCLUIDO = '@onboarding_v1';
 
 const CHAVES_CONFIGURACAO_INICIAL = [
   CHAVE_LOJA,
+  CHAVE_CODIGO_LOJA,
   CHAVE_REGIONAL,
   CHAVE_COLABORADOR,
+  CHAVE_FREQUENCIA_LEMBRETE_HORAS,
+  CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS,
   CHAVE_AUTO_EXCLUIR_VENCIDOS,
   CHAVE_MODO_TEMA,
   CHAVE_MODO_ACESSIBILIDADE,
   CHAVE_PRIMEIRA_INSTALACAO,
   CHAVE_ONBOARDING_CONCLUIDO,
 ] as const;
+
+const OPCOES_FREQUENCIA_LEMBRETE_HORAS = [2, 4, 8, 12] as const;
+const OPCOES_FREQUENCIA_ALERTA_RISCO_HORAS = [3, 6, 12, 24] as const;
+const FREQUENCIA_LEMBRETE_PADRAO_HORAS = 4;
+const FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS = 12;
 
 const INDICES_SQLITE = [
   'CREATE INDEX IF NOT EXISTS idx_produtos_validade ON produtos(validade)',
@@ -222,6 +233,11 @@ const parseNumeroMedida = (valor: string | undefined) => {
 const texto = String(valor || '').replace(',', '.');
 const numero = parseFloat(texto);
 return Number.isFinite(numero) ? numero : 0;
+};
+
+const normalizarOpcaoHoras = (valor: string | null | undefined, opcoes: readonly number[], padrao: number) => {
+const numero = Number(valor);
+return opcoes.includes(numero) ? numero : padrao;
 };
 
 const inferirMedidaDaApresentacao = (apresentacao?: string) => {
@@ -455,6 +471,7 @@ const a11y = useMemo(() => ({
 // ESTADOS GLOBAIS
 // ==========================================
 const [loja, setLoja] = useState('[Loja]');
+const [codigoLoja, setCodigoLoja] = useState('');
 const [regional, setRegional] = useState('[Regional]');
 const [colaborador, setColaborador] = useState('[Seu nome]');
 const [autoExcluirVencidos, setAutoExcluirVencidos] = useState(false);
@@ -487,6 +504,8 @@ const [exportandoPlanilha, setExportandoPlanilha] = useState(false);
 const [buscandoNaApi, setBuscandoNaApi] = useState(false);
 const [isScanning, setIsScanning] = useState(false);
 const [notificacoesHabilitadas, setNotificacoesHabilitadas] = useState(false);
+const [frequenciaLembreteHoras, setFrequenciaLembreteHoras] = useState(FREQUENCIA_LEMBRETE_PADRAO_HORAS);
+const [frequenciaResumoRiscoHoras, setFrequenciaResumoRiscoHoras] = useState(FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS);
 
 const [editandoId, setEditandoId] = useState<string | null>(null);
 
@@ -529,11 +548,14 @@ const [novaObservacao, setNovaObservacao] = useState('');
 const [novoStatusConferencia, setNovoStatusConferencia] = useState<StatusConferencia>('pendente');
 
 const [tempLoja, setTempLoja] = useState('');
+const [tempCodigoLoja, setTempCodigoLoja] = useState('');
 const [tempRegional, setTempRegional] = useState('');
 const [tempColaborador, setTempColaborador] = useState('');
 const [tempAutoExcluirVencidos, setTempAutoExcluirVencidos] = useState(false);
 const [tempThemePreference, setTempThemePreference] = useState<ThemePreference>('system');
 const [tempModoAcessibilidade, setTempModoAcessibilidade] = useState(false);
+const [tempFrequenciaLembreteHoras, setTempFrequenciaLembreteHoras] = useState(FREQUENCIA_LEMBRETE_PADRAO_HORAS);
+const [tempFrequenciaResumoRiscoHoras, setTempFrequenciaResumoRiscoHoras] = useState(FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS);
 
 // NOVOS ESTADOS: SWIPE, GRÁFICO
 const [showGraficoStatus, setShowGraficoStatus] = useState(false);
@@ -550,6 +572,7 @@ const ultimoCodigoBuscado = useRef('');
 const cacheEanMemoria = useRef<Record<string, CadastroEan>>({});
 const bancoAbertoRef = useRef<Promise<BancoDados> | null>(null);
 const importacaoEmAndamentoRef = useRef(false);
+const confirmacaoAutoExclusaoAbertaRef = useRef(false);
 
 const gerarId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -585,6 +608,7 @@ return Array.from(totais.entries())
 };
 
 const normalizarCabecalho = (valor: string) => valor.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const extrairSomenteNumeros = (valor: string) => valor.replace(/\D+/g, '');
 
 const detectarSeparador = (linha: string) => {
 const qtdPontoVirgula = (linha.match(/;/g) || []).length;
@@ -818,7 +842,7 @@ try {
 }
 }, []);
 
-const agendarLembreteRecorrente = useCallback(async () => {
+const agendarLembreteRecorrente = useCallback(async (forcarReagendamento = false) => {
 if (!(await configurarNotificacoes(true))) return false;
 
 try {
@@ -826,20 +850,23 @@ try {
   if (notificacaoExistente) {
     const agendadas = await Notifications.getAllScheduledNotificationsAsync();
     const lembreteAindaExiste = agendadas.some((item) => item.identifier === notificacaoExistente);
-    if (lembreteAindaExiste) return;
+    if (lembreteAindaExiste && !forcarReagendamento) return true;
+    if (lembreteAindaExiste && forcarReagendamento) {
+      await Notifications.cancelScheduledNotificationAsync(notificacaoExistente);
+    }
 
     await AsyncStorage.removeItem(CHAVE_NOTIFICACAO_LEMBRETE);
   }
 
   const identificador = await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Auditoria de validade',
-      body: 'Faça a auditoria de validade dos produtos da sua loja.',
+      title: `Lembrete de auditoria ${codigoLoja ? `- Loja ${codigoLoja}` : ''}`,
+      body: `Loja ${loja} | Regional ${regional}. Revise os produtos com vencimento proximo. Frequencia atual: ${frequenciaLembreteHoras}h.`,
       sound: 'default',
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 2 * 60 * 60,
+      seconds: frequenciaLembreteHoras * 60 * 60,
       repeats: true,
       channelId: 'alertas-validade',
     },
@@ -854,7 +881,7 @@ try {
   setNotificacoesHabilitadas(false);
   return false;
 }
-}, [configurarNotificacoes]);
+}, [codigoLoja, configurarNotificacoes, frequenciaLembreteHoras, loja, regional]);
 
 const enviarNotificacaoLocal = useCallback(async (title: string, body: string) => {
 if (!(await configurarNotificacoes(false))) return;
@@ -1009,14 +1036,22 @@ try {
 // 1. Carregar Configurações (AsyncStorage)
 const configuracoes = Object.fromEntries(await AsyncStorage.multiGet([...CHAVES_CONFIGURACAO_INICIAL]));
 const l = configuracoes[CHAVE_LOJA];
+const cl = configuracoes[CHAVE_CODIGO_LOJA];
 const r = configuracoes[CHAVE_REGIONAL];
 const c = configuracoes[CHAVE_COLABORADOR];
 const autoExcluir = configuracoes[CHAVE_AUTO_EXCLUIR_VENCIDOS];
 const modoTema = configuracoes[CHAVE_MODO_TEMA];
+const freqLembrete = normalizarOpcaoHoras(configuracoes[CHAVE_FREQUENCIA_LEMBRETE_HORAS], OPCOES_FREQUENCIA_LEMBRETE_HORAS, FREQUENCIA_LEMBRETE_PADRAO_HORAS);
+const freqResumoRisco = normalizarOpcaoHoras(configuracoes[CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS], OPCOES_FREQUENCIA_ALERTA_RISCO_HORAS, FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS);
 if (l) setLoja(l);
+if (cl) setCodigoLoja(extrairSomenteNumeros(cl));
 if (r) setRegional(r);
 if (c) setColaborador(c);
 setAutoExcluirVencidos(autoExcluir === 'true');
+setFrequenciaLembreteHoras(freqLembrete);
+setTempFrequenciaLembreteHoras(freqLembrete);
+setFrequenciaResumoRiscoHoras(freqResumoRisco);
+setTempFrequenciaResumoRiscoHoras(freqResumoRisco);
 if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
   setThemePreference(modoTema);
   setTempThemePreference(modoTema);
@@ -1228,34 +1263,66 @@ setShowHistoricoDatePicker(false);
 
 const abrirConfiguracoes = useCallback(() => {
 setTempLoja(loja);
+setTempCodigoLoja(extrairSomenteNumeros(codigoLoja));
 setTempRegional(regional);
 setTempColaborador(colaborador);
 setTempAutoExcluirVencidos(autoExcluirVencidos);
 setTempThemePreference(themePreference);
 setTempModoAcessibilidade(modoAcessibilidade);
+setTempFrequenciaLembreteHoras(frequenciaLembreteHoras);
+setTempFrequenciaResumoRiscoHoras(frequenciaResumoRiscoHoras);
 setShowConfig(true);
-}, [autoExcluirVencidos, colaborador, loja, modoAcessibilidade, regional, themePreference]);
+}, [autoExcluirVencidos, codigoLoja, colaborador, frequenciaLembreteHoras, frequenciaResumoRiscoHoras, loja, modoAcessibilidade, regional, themePreference]);
 
 const salvarConfiguracoes = async () => {
 try {
-const lojaNormalizada = tempLoja.toUpperCase();
-const regionalNormalizada = tempRegional.toUpperCase();
+const lojaNormalizada = tempLoja.trim().toUpperCase();
+const codigoLojaNormalizado = extrairSomenteNumeros(tempCodigoLoja);
+const regionalNormalizada = tempRegional.trim().toUpperCase();
+const mudouFrequenciaLembrete = tempFrequenciaLembreteHoras !== frequenciaLembreteHoras;
+const mudouFrequenciaResumo = tempFrequenciaResumoRiscoHoras !== frequenciaResumoRiscoHoras;
+const mudouContextoLoja = lojaNormalizada !== loja || codigoLojaNormalizado !== codigoLoja || regionalNormalizada !== regional;
 
 await AsyncStorage.multiSet([
   [CHAVE_LOJA, lojaNormalizada],
+  [CHAVE_CODIGO_LOJA, codigoLojaNormalizado],
   [CHAVE_REGIONAL, regionalNormalizada],
   [CHAVE_COLABORADOR, tempColaborador],
+  [CHAVE_FREQUENCIA_LEMBRETE_HORAS, String(tempFrequenciaLembreteHoras)],
+  [CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS, String(tempFrequenciaResumoRiscoHoras)],
   [CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false'],
   [CHAVE_MODO_TEMA, tempThemePreference],
   [CHAVE_MODO_ACESSIBILIDADE, tempModoAcessibilidade ? 'true' : 'false'],
 ]);
 
 setLoja(lojaNormalizada);
+setCodigoLoja(codigoLojaNormalizado);
 setRegional(regionalNormalizada);
 setColaborador(tempColaborador);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
+setFrequenciaLembreteHoras(tempFrequenciaLembreteHoras);
+setFrequenciaResumoRiscoHoras(tempFrequenciaResumoRiscoHoras);
 setThemePreference(tempThemePreference);
 setModoAcessibilidade(tempModoAcessibilidade);
+
+if (mudouFrequenciaResumo) {
+  await AsyncStorage.removeItem(CHAVE_ULTIMO_ALERTA_RISCO);
+}
+
+if (notificacoesHabilitadas && (mudouFrequenciaLembrete || mudouContextoLoja)) {
+  const reagendado = await agendarLembreteRecorrente(true);
+  if (reagendado) {
+    exibirNotificacao(`Lembretes atualizados para Loja ${codigoLojaNormalizado || lojaNormalizada} a cada ${tempFrequenciaLembreteHoras}h.`);
+  }
+}
+
+if (notificacoesHabilitadas && mudouContextoLoja) {
+  await enviarNotificacaoLocal(
+    'Configuracao de loja atualizada',
+    `Novo contexto: Loja ${lojaNormalizada} (${codigoLojaNormalizado || 'SEM CODIGO'}) - Regional ${regionalNormalizada}.`
+  );
+}
+
 await fecharConfiguracoes();
 } catch {
 Alert.alert("Erro", "Não foi possível guardar as definições.");
@@ -1348,13 +1415,17 @@ try {
 
     await AsyncStorage.removeItem(CHAVE_ULTIMO_ALERTA_RISCO);
     setNotificacoesHabilitadas(false);
-    exibirNotificacao('Lembretes desativados.');
+    exibirNotificacao('Lembretes de auditoria desativados.');
     return;
   }
 
   const lembreteAtivado = await agendarLembreteRecorrente();
   if (lembreteAtivado) {
-    exibirNotificacao('Lembretes ativados com sucesso.');
+    exibirNotificacao(`Lembretes ativados. Novo aviso a cada ${frequenciaLembreteHoras}h.`);
+    await enviarNotificacaoLocal(
+      'Lembretes ativados',
+      `Loja ${codigoLoja || loja} com alertas recorrentes a cada ${frequenciaLembreteHoras}h.`
+    );
     return;
   }
 
@@ -1363,7 +1434,7 @@ try {
   const mensagem = error instanceof Error ? error.message : 'Falha ao atualizar os lembretes locais.';
   Alert.alert('Erro', mensagem);
 }
-}, [agendarLembreteRecorrente, exibirNotificacao, notificacoesHabilitadas]);
+}, [agendarLembreteRecorrente, codigoLoja, exibirNotificacao, frequenciaLembreteHoras, loja, notificacoesHabilitadas, enviarNotificacaoLocal]);
 
 // ==========================================
 // DATE PICKER PARA VALIDADE
@@ -1539,14 +1610,14 @@ useEffect(() => {
 if ([8, 11, 12, 13, 14].includes(novoCodigo.length) && !editandoId) buscarNaRedeDrogaria(novoCodigo);
 }, [buscarNaRedeDrogaria, editandoId, novoCodigo]);
 
-// NOTIFICAÇÃO A CADA 2 HORAS
+// LEMBRETE VISUAL ENQUANTO O APP ESTIVER ABERTO
 useEffect(() => {
 const intervalo = setInterval(() => {
-  exibirNotificacao('Sistema: Faça a auditoria de validade dos produtos em sua loja!');
-}, 2 * 60 * 60 * 1000); // 2 horas
+  exibirNotificacao('Lembrete: revise os produtos com vencimento proximo.');
+}, frequenciaLembreteHoras * 60 * 60 * 1000);
 
 return () => clearInterval(intervalo);
-}, [exibirNotificacao]);
+}, [exibirNotificacao, frequenciaLembreteHoras]);
 
 const sanitizarTrechoArquivo = (valor: string) => valor
   .normalize('NFD')
@@ -1570,14 +1641,17 @@ if (produtos.length === 0) return Alert.alert("Aviso", "Não há produtos para e
 if (exportandoPlanilha) return;
 
 const dataExportacao = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-const fileName = `Validades_${sanitizarTrechoArquivo(loja)}_${Date.now()}.xlsx`;
+const fileName = `Validades_${sanitizarTrechoArquivo(codigoLoja || loja)}_${Date.now()}.xlsx`;
 
 const montarLinhasProdutos = (lista: Produto[]) => [
-  ['Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
+  ['Loja', 'Codigo_Loja', 'Regional', 'Nome', 'Apresentacao', 'Embalagem', 'Codigo_EAN', 'Validade', 'Validades_Adicionais', 'Status', 'Quantidade', 'Colaborador', 'Status_Conferencia', 'Tipo_Medida', 'Conteudo_Embalagem', 'Observacao'],
   ...lista.map((p: Produto) => {
     const validadePrioritaria = extrairValidadeMaisProxima(p.validade, p.validades_adicionais);
     const adicionais = lerListaJson(p.validades_adicionais).map(formataDataBR).join(' | ');
     return [
+      loja || '',
+      codigoLoja || '',
+      regional || '',
       p.nome || '',
       p.apresentacao || '',
       p.embalagem || inferirTipoEmbalagem(p.apresentacao) || '',
@@ -1608,20 +1682,20 @@ for (const produto of produtos) {
 }
 
 const planilhaResumoColaborador = [
-  ['Colaborador', 'Quantidade_Auditada', 'Risco_Imediato', 'Markdown'],
-  ...Array.from(resumoExportacaoMap.values()).sort((a, b) => b.qtd - a.qtd).map((item) => [item.colaborador, item.qtd, item.risco, item.markdown]),
+  ['Loja', 'Codigo_Loja', 'Regional', 'Colaborador', 'Quantidade_Auditada', 'Risco_Imediato', 'Markdown'],
+  ...Array.from(resumoExportacaoMap.values()).sort((a, b) => b.qtd - a.qtd).map((item) => [loja, codigoLoja || '', regional, item.colaborador, item.qtd, item.risco, item.markdown]),
 ];
 
 const planilhaHistorico = [
-  ['Data_Hora', 'Acao', 'Nome', 'Codigo', 'Colaborador', 'Detalhes'],
-  ...historico.map((item) => [formatarDataHora(item.data_evento), item.acao, item.nome, item.codigo, item.colaborador, item.detalhes]),
+  ['Loja', 'Codigo_Loja', 'Regional', 'Data_Hora', 'Acao', 'Nome', 'Codigo', 'Colaborador', 'Detalhes'],
+  ...historico.map((item) => [loja, codigoLoja || '', regional, formatarDataHora(item.data_evento), item.acao, item.nome, item.codigo, item.colaborador, item.detalhes]),
 ];
 
 try {
   setExportandoPlanilha(true);
   const workbook = XLSX.utils.book_new();
   const worksheetTodos = XLSX.utils.aoa_to_sheet([
-    ['Loja', loja, 'Regional', regional, 'Data', dataExportacao],
+    ['Loja', loja, 'Codigo Loja', codigoLoja || '-', 'Regional', regional, 'Data', dataExportacao],
     [],
     ...montarLinhasProdutos(produtos),
   ]);
@@ -1658,7 +1732,7 @@ try {
 }
 
 
-}, [exibirNotificacao, exportandoPlanilha, historico, loja, produtos, regional]);
+}, [codigoLoja, exibirNotificacao, exportandoPlanilha, historico, loja, produtos, regional]);
 
 const baixarModeloPlanilha = useCallback(async () => {
 try {
@@ -2162,6 +2236,7 @@ Alert.alert("Erro", mensagem);
 
 useEffect(() => {
 if (isLoading || !autoExcluirVencidos || produtos.length === 0) return;
+if (confirmacaoAutoExclusaoAbertaRef.current) return;
 
 const hoje = new Date();
 hoje.setHours(0, 0, 0, 0);
@@ -2182,15 +2257,43 @@ const idsNaDataLimite = produtos
   .map((produto) => produto.id);
 
 if (idsNaDataLimite.length === 0) return;
-
-const executarExclusaoAutomatica = async () => {
-  const removidos = await excluirProdutosSilenciosamente(idsNaDataLimite);
-  if (removidos > 0) {
-    exibirNotificacao(`${removidos} produto(s) removido(s) automaticamente na data limite.`);
-  }
-};
-
-void executarExclusaoAutomatica();
+confirmacaoAutoExclusaoAbertaRef.current = true;
+Alert.alert(
+  'Excluir na data limite',
+  `${idsNaDataLimite.length} produto(s) atingiram a data limite. Deseja excluir agora?`,
+  [
+    {
+      text: 'Cancelar',
+      style: 'cancel',
+      onPress: () => {
+        confirmacaoAutoExclusaoAbertaRef.current = false;
+      },
+    },
+    {
+      text: 'Excluir',
+      style: 'destructive',
+      onPress: async () => {
+        try {
+          const removidos = await excluirProdutosSilenciosamente(idsNaDataLimite);
+          if (removidos > 0) {
+            exibirNotificacao(`${removidos} produto(s) removido(s) na data limite.`);
+          }
+        } catch (error) {
+          const mensagem = error instanceof Error ? error.message : 'Falha ao excluir os produtos na data limite.';
+          Alert.alert('Erro', mensagem);
+        } finally {
+          confirmacaoAutoExclusaoAbertaRef.current = false;
+        }
+      },
+    },
+  ],
+  {
+    cancelable: true,
+    onDismiss: () => {
+      confirmacaoAutoExclusaoAbertaRef.current = false;
+    },
+  },
+);
 }, [autoExcluirVencidos, excluirProdutosSilenciosamente, exibirNotificacao, isLoading, produtos]);
 
 // ==========================================
@@ -2637,21 +2740,23 @@ const avaliarResumoDeRisco = async () => {
 
   const ultimoAlerta = await AsyncStorage.getItem(CHAVE_ULTIMO_ALERTA_RISCO);
   const agora = Date.now();
-  if (ultimoAlerta && agora - Number(ultimoAlerta) < 6 * 60 * 60 * 1000) return;
+  if (ultimoAlerta && agora - Number(ultimoAlerta) < frequenciaResumoRiscoHoras * 60 * 60 * 1000) return;
 
   const partes: string[] = [];
-  if (qtdRiscoImediato > 0) partes.push(`${qtdRiscoImediato} em risco imediato`);
-  if (qtdVence7 > 0) partes.push(`${qtdVence7} vencem em 7 dias`);
-  if (qtdVence15 > 0) partes.push(`${qtdVence15} vencem em 15 dias`);
+  if (qtdRiscoImediato > 0) partes.push(`${qtdRiscoImediato} em acao imediata`);
+  if (qtdVence7 > 0) partes.push(`${qtdVence7} vencendo em ate 7 dias`);
+  if (qtdVence15 > 0) partes.push(`${qtdVence15} vencendo em ate 15 dias`);
 
   if (partes.length === 0) return;
+  const resumo = partes.join(' • ');
 
-  await enviarNotificacaoLocal('Resumo de validade', partes.join(' • '));
+  const tituloAlerta = codigoLoja ? `Produtos em alerta - Loja ${codigoLoja}` : 'Produtos em alerta';
+  await enviarNotificacaoLocal(tituloAlerta, `${resumo}. Regional ${regional}.`);
   await AsyncStorage.setItem(CHAVE_ULTIMO_ALERTA_RISCO, String(agora));
 };
 
 void avaliarResumoDeRisco();
-}, [enviarNotificacaoLocal, notificacoesHabilitadas, qtdRiscoImediato, qtdVence7, qtdVence15]);
+}, [codigoLoja, enviarNotificacaoLocal, frequenciaResumoRiscoHoras, notificacoesHabilitadas, qtdRiscoImediato, qtdVence7, qtdVence15, regional]);
 
 useEffect(() => {
 if (!showMenuLateral) return;
@@ -2800,6 +2905,7 @@ return (
         <Text style={[styles.headerTitle, isCompact && styles.headerTitleCompact]}>FARMACHECK</Text>
         <View style={[styles.badgesWrap, isCompact && styles.badgesWrapCompact]}>
           <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Lj: {loja}</Text></View>
+          <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Cod: {codigoLoja || '-'}</Text></View>
           <View style={[styles.badgeTop, { backgroundColor: theme.headerPanelBg, borderColor: theme.headerPanelBorder }]}><Text style={styles.badgeTopText}>Reg: {regional}</Text></View>
         </View>
       </View>
@@ -2953,6 +3059,13 @@ return (
             <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
             <View style={{ flex: 1 }}>
+            <Text style={[styles.label, { color: theme.muted }]}>CÓDIGO DA LOJA</Text>
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempCodigoLoja} onChangeText={(valor) => setTempCodigoLoja(extrairSomenteNumeros(valor))} keyboardType="number-pad" placeholder="Ex: 102" placeholderTextColor={theme.muted} />
+          </View>
+        </View>
+
+          <View style={[styles.row, isCompact && { flexDirection: 'column' }]}>
+            <View style={{ flex: 1 }}>
             <Text style={[styles.label, { color: theme.muted }]}>REGIONAL</Text>
             <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" placeholderTextColor={theme.muted} />
           </View>
@@ -3006,13 +3119,52 @@ return (
           <View style={styles.configOptionTextWrap}>
             <Text style={[styles.configOptionTitle, { color: theme.text }]}>Excluir na data limite</Text>
             <Text style={[styles.configOptionDescription, { color: theme.muted }]}>
-              Quando ativado, produtos com validade hoje ou anterior são removidos automaticamente ao abrir o app ou atualizar a lista.
+              Quando ativado, produtos com validade hoje ou anterior entram em fila de exclusão ao abrir o app ou atualizar a lista, com confirmação antes de remover.
             </Text>
           </View>
           <View style={[styles.configToggle, tempAutoExcluirVencidos && styles.configToggleActive]}>
             <View style={[styles.configToggleThumb, tempAutoExcluirVencidos && styles.configToggleThumbActive]} />
           </View>
         </TouchableOpacity>
+
+        <Text style={[styles.label, { color: theme.muted }]}>FREQUÊNCIA DE NOTIFICAÇÕES</Text>
+        <Text style={[styles.configOptionDescription, { color: theme.muted, marginBottom: 8 }]}>Lembrete recorrente</Text>
+        <View style={styles.measureOptionsWrap}>
+          {OPCOES_FREQUENCIA_LEMBRETE_HORAS.map((horas) => {
+            const ativo = tempFrequenciaLembreteHoras === horas;
+            return (
+              <TouchableOpacity
+                key={`lembrete-${horas}`}
+                style={[
+                  styles.measureChip,
+                  { backgroundColor: theme.chipBg, borderColor: theme.border },
+                  ativo && styles.measureChipActive,
+                ]}
+                onPress={() => setTempFrequenciaLembreteHoras(horas)}>
+                <Text style={[styles.measureChipText, { color: theme.chipText }, ativo && styles.measureChipTextActive]}>{horas}h</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={[styles.configOptionDescription, { color: theme.muted, marginBottom: 8 }]}>Resumo de risco</Text>
+        <View style={styles.measureOptionsWrap}>
+          {OPCOES_FREQUENCIA_ALERTA_RISCO_HORAS.map((horas) => {
+            const ativo = tempFrequenciaResumoRiscoHoras === horas;
+            return (
+              <TouchableOpacity
+                key={`risco-${horas}`}
+                style={[
+                  styles.measureChip,
+                  { backgroundColor: theme.chipBg, borderColor: theme.border },
+                  ativo && styles.measureChipActive,
+                ]}
+                onPress={() => setTempFrequenciaResumoRiscoHoras(horas)}>
+                <Text style={[styles.measureChipText, { color: theme.chipText }, ativo && styles.measureChipTextActive]}>{horas}h</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         <TouchableOpacity style={styles.btnDialogAction} onPress={salvarConfiguracoes}>
           <Text style={styles.btnDialogActionText}>Guardar Alterações</Text>
@@ -3093,7 +3245,7 @@ return (
           <Bell size={18} />
           <View style={styles.sidebarActionTextWrap}>
             <Text style={[styles.sidebarActionTitle, { color: notificacoesHabilitadas ? '#991B1B' : '#166534' }]}>{notificacoesHabilitadas ? 'Desativar Lembretes' : 'Ativar Lembretes'}</Text>
-            <Text style={styles.sidebarActionSubtitle}>{notificacoesHabilitadas ? 'Interrompe notificacoes periodicas' : 'Solicita permissao e ativa notificacoes'}</Text>
+            <Text style={styles.sidebarActionSubtitle}>{notificacoesHabilitadas ? `Interrompe notificacoes a cada ${frequenciaLembreteHoras}h` : `Solicita permissao e ativa lembretes a cada ${frequenciaLembreteHoras}h`}</Text>
           </View>
         </TouchableOpacity>
 
