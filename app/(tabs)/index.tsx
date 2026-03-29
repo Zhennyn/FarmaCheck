@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import ExcelJS from 'exceljs';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
@@ -15,7 +16,6 @@ import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Pla
 import { BarChart } from 'react-native-chart-kit';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as XLSX from 'xlsx';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 
 type Produto = {
@@ -662,20 +662,28 @@ const lerPlanilhaComoLinhas = async (arquivo: DocumentPicker.DocumentPickerAsset
 const extensao = obterExtensaoArquivo(arquivo);
 const arquivoSelecionado = new File(arquivo.uri);
 
-if (extensao === 'xlsx' || extensao === 'xls') {
-  const conteudoBase64 = await arquivoSelecionado.base64();
-  const workbook = XLSX.read(conteudoBase64, { type: 'base64' });
-  const primeiraAba = workbook.Sheets[workbook.SheetNames[0]];
-  const linhas = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(primeiraAba, {
-    header: 1,
-    raw: false,
-    defval: '',
-    blankrows: false,
+if (extensao === 'xls') {
+  throw new Error('Arquivos .xls nao sao suportados. Use .xlsx ou .csv.');
+}
+
+if (extensao === 'xlsx') {
+  const conteudoArray = await arquivoSelecionado.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(conteudoArray);
+
+  const primeiraAba = workbook.worksheets[0];
+  if (!primeiraAba) return [];
+
+  const linhas: string[][] = [];
+  primeiraAba.eachRow({ includeEmpty: false }, (linha) => {
+    const totalColunas = Math.max(linha.cellCount, linha.actualCellCount || 0);
+    const colunas = Array.from({ length: totalColunas }, (_, indice) => linha.getCell(indice + 1).text.trim());
+    if (colunas.some((coluna) => coluna)) {
+      linhas.push(colunas);
+    }
   });
 
-  return linhas
-    .map((linha) => linha.map((celula) => String(celula ?? '').trim()))
-    .filter((linha) => linha.some((coluna) => coluna));
+  return linhas;
 }
 
 const conteudoTexto = await arquivoSelecionado.text();
@@ -1625,11 +1633,11 @@ const sanitizarTrechoArquivo = (valor: string) => valor
   .replace(/[^a-zA-Z0-9_-]+/g, '_')
   .replace(/^_+|_+$/g, '') || 'arquivo';
 
-const salvarWorkbookEmArquivo = async (workbook: XLSX.WorkBook, fileName: string) => {
+const salvarWorkbookEmArquivo = async (workbook: ExcelJS.Workbook, fileName: string) => {
 const arquivo = new File(Paths.document, fileName);
-const conteudoArray = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+const conteudoArray = await workbook.xlsx.writeBuffer();
 arquivo.create({ intermediates: true, overwrite: true });
-arquivo.write(new Uint8Array(conteudoArray));
+arquivo.write(conteudoArray instanceof Uint8Array ? conteudoArray : new Uint8Array(conteudoArray));
 return arquivo;
 };
 
@@ -1693,25 +1701,27 @@ const planilhaHistorico = [
 
 try {
   setExportandoPlanilha(true);
-  const workbook = XLSX.utils.book_new();
-  const worksheetTodos = XLSX.utils.aoa_to_sheet([
+  const workbook = new ExcelJS.Workbook();
+  const worksheetTodos = workbook.addWorksheet('Produtos');
+  [
     ['Loja', loja, 'Codigo Loja', codigoLoja || '-', 'Regional', regional, 'Data', dataExportacao],
     [],
     ...montarLinhasProdutos(produtos),
-  ]);
-  const worksheetVencidos = XLSX.utils.aoa_to_sheet(montarLinhasProdutos(produtos.filter((produto) => obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo === 'vencido')));
-  const worksheetProximos = XLSX.utils.aoa_to_sheet(montarLinhasProdutos(produtos.filter((produto) => {
+  ].forEach((linha) => worksheetTodos.addRow(linha));
+
+  const worksheetVencidos = workbook.addWorksheet('Vencidos');
+  montarLinhasProdutos(produtos.filter((produto) => obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo === 'vencido')).forEach((linha) => worksheetVencidos.addRow(linha));
+
+  const worksheetProximos = workbook.addWorksheet('Proximos');
+  montarLinhasProdutos(produtos.filter((produto) => {
     const status = obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo;
     return status === 'retirar' || status === 'markdown';
-  })));
-  const worksheetResumo = XLSX.utils.aoa_to_sheet(planilhaResumoColaborador);
-  const worksheetHistorico = XLSX.utils.aoa_to_sheet(planilhaHistorico);
+  })).forEach((linha) => worksheetProximos.addRow(linha));
 
-  XLSX.utils.book_append_sheet(workbook, worksheetTodos, 'Produtos');
-  XLSX.utils.book_append_sheet(workbook, worksheetVencidos, 'Vencidos');
-  XLSX.utils.book_append_sheet(workbook, worksheetProximos, 'Proximos');
-  XLSX.utils.book_append_sheet(workbook, worksheetResumo, 'Resumo_Colaborador');
-  XLSX.utils.book_append_sheet(workbook, worksheetHistorico, 'Historico');
+  const worksheetResumo = workbook.addWorksheet('Resumo_Colaborador');
+  planilhaResumoColaborador.forEach((linha) => worksheetResumo.addRow(linha));
+  const worksheetHistorico = workbook.addWorksheet('Historico');
+  planilhaHistorico.forEach((linha) => worksheetHistorico.addRow(linha));
 
   const arquivoExportacao = await salvarWorkbookEmArquivo(workbook, fileName);
 
@@ -1737,30 +1747,29 @@ try {
 const baixarModeloPlanilha = useCallback(async () => {
 try {
   const fileName = `Modelo_Importacao_Validades_${Date.now()}.xlsx`;
-  const workbook = XLSX.utils.book_new();
+  const workbook = new ExcelJS.Workbook();
 
-  const worksheetModelo = XLSX.utils.aoa_to_sheet([
+  const worksheetModelo = workbook.addWorksheet('Modelo_Completo');
+  [
     ['Nome', 'Codigo_EAN', 'Validade', 'Apresentacao', 'Quantidade', 'Colaborador', 'Lote', 'Observacao', 'Embalagem', 'Tipo_Medida', 'Conteudo_Embalagem', 'Status_Conferencia'],
     ['Dipirona 500mg', '7891234567890', '2026-12-31', 'Caixa com 20 comprimidos', '2', colaborador, 'L123', 'Exemplo de observacao', 'frasco', 'comprimidos', '20', 'pendente'],
-  ]);
+  ].forEach((linha) => worksheetModelo.addRow(linha));
 
-  const worksheetMinimo = XLSX.utils.aoa_to_sheet([
+  const worksheetMinimo = workbook.addWorksheet('Modelo_Minimo');
+  [
     ['Nome', 'Codigo_EAN', 'Validade'],
     ['Paracetamol 750mg', '7890001112223', '2026-10-15'],
-  ]);
+  ].forEach((linha) => worksheetMinimo.addRow(linha));
 
-  const worksheetInstrucoes = XLSX.utils.aoa_to_sheet([
+  const worksheetInstrucoes = workbook.addWorksheet('Instrucoes');
+  [
     ['Como importar'],
     ['1. A aba Modelo_Completo mostra todas as colunas aceitas.'],
     ['2. A aba Modelo_Minimo funciona apenas com Nome, Codigo_EAN e Validade.'],
     ['3. A ordem das colunas com cabecalho pode ser alterada.'],
     ['4. A validade deve estar em AAAA-MM-DD ou DD/MM/AAAA.'],
-    ['5. O app aceita CSV, XLS e XLSX.'],
-  ]);
-
-  XLSX.utils.book_append_sheet(workbook, worksheetModelo, 'Modelo_Completo');
-  XLSX.utils.book_append_sheet(workbook, worksheetMinimo, 'Modelo_Minimo');
-  XLSX.utils.book_append_sheet(workbook, worksheetInstrucoes, 'Instrucoes');
+    ['5. O app aceita CSV e XLSX.'],
+  ].forEach((linha) => worksheetInstrucoes.addRow(linha));
 
   const arquivoModelo = await salvarWorkbookEmArquivo(workbook, fileName);
 

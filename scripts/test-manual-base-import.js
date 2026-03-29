@@ -1,7 +1,7 @@
 /* Smoke test for manual internal base import mapping logic. */
 const fs = require('fs');
 const path = require('path');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 const normalizarTextoMedida = (valor = '') =>
   String(valor)
@@ -104,20 +104,29 @@ const parseLinhaDelimitada = (linha, separador) => {
   return colunas;
 };
 
-const lerPlanilhaComoLinhas = (filePath) => {
+const lerPlanilhaComoLinhas = async (filePath) => {
   const ext = path.extname(filePath).toLowerCase();
 
-  if (ext === '.xlsx' || ext === '.xls') {
-    const workbook = XLSX.readFile(filePath, { raw: false });
-    const primeiraAba = workbook.Sheets[workbook.SheetNames[0]];
-    const linhas = XLSX.utils.sheet_to_json(primeiraAba, {
-      header: 1,
-      raw: false,
-      defval: '',
-      blankrows: false,
+  if (ext === '.xlsx') {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const primeiraAba = workbook.worksheets[0];
+    if (!primeiraAba) return [];
+
+    const linhas = [];
+    primeiraAba.eachRow({ includeEmpty: false }, (linha) => {
+      const totalColunas = Math.max(linha.cellCount, linha.actualCellCount || 0);
+      const colunas = Array.from({ length: totalColunas }, (_, indice) => linha.getCell(indice + 1).text.trim());
+      if (colunas.some(Boolean)) {
+        linhas.push(colunas);
+      }
     });
 
-    return linhas.map((linha) => linha.map((cel) => String(cel ?? '').trim())).filter((linha) => linha.some(Boolean));
+    return linhas;
+  }
+
+  if (ext === '.xls') {
+    throw new Error('Formato .xls nao suportado no teste. Use .xlsx ou .csv.');
   }
 
   const conteudo = fs.readFileSync(filePath, 'utf8');
@@ -133,8 +142,8 @@ const lerPlanilhaComoLinhas = (filePath) => {
   return linhasTexto.map((linha) => parseLinhaDelimitada(linha, separador));
 };
 
-const importarBaseInternaDeArquivo = (filePath) => {
-  const linhas = lerPlanilhaComoLinhas(filePath);
+const importarBaseInternaDeArquivo = async (filePath) => {
+  const linhas = await lerPlanilhaComoLinhas(filePath);
   if (linhas.length < 2) return { ok: false, motivo: 'arquivo-sem-dados', registros: [] };
 
   const cabecalhos = linhas[0].map((coluna) => normalizarCabecalho(coluna));
@@ -208,7 +217,7 @@ const assert = (condicao, mensagem) => {
   }
 };
 
-const run = () => {
+const run = async () => {
   const tmpDir = path.join(__dirname, '.tmp-import-tests');
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
@@ -229,27 +238,27 @@ const run = () => {
   fs.writeFileSync(anvisaPath, anvisaConteudo, 'utf8');
 
   const xlsxPath = path.join(tmpDir, 'base-xlsx.xlsx');
-  const ws = XLSX.utils.aoa_to_sheet([
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Base');
+  [
     ['ean', 'descricao', 'descricao_apresentacao', 'processo'],
     ['7892000000002', 'Produto Planilha', 'Bisnaga 20 g', 'XLS-001'],
-  ]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Base');
-  XLSX.writeFile(wb, xlsxPath);
+  ].forEach((linha) => ws.addRow(linha));
+  await wb.xlsx.writeFile(xlsxPath);
 
-  const r1 = importarBaseInternaDeArquivo(csvPath);
+  const r1 = await importarBaseInternaDeArquivo(csvPath);
   assert(r1.ok, 'CSV base EAN deveria ser processado com sucesso');
   assert(r1.registros.length === 1, `Esperado 1 registro unico no CSV, obtido ${r1.registros.length}`);
   assert(r1.registros[0].nome === 'Dipirona 500mg Revisado', 'Duplicado por codigo deve manter ultimo registro');
   assert(r1.registros[0].unidade_medida === 'ml', 'Inferencia de medida ml falhou no CSV');
 
-  const r2 = importarBaseInternaDeArquivo(anvisaPath);
+  const r2 = await importarBaseInternaDeArquivo(anvisaPath);
   assert(r2.ok, 'CSV ANVISA deveria ser processado com sucesso');
   assert(r2.arquivoAnvisa === true, 'Deteccao de arquivo ANVISA deveria ser true');
   assert(r2.registros.length === 1, `Esperado 1 registro ANVISA, obtido ${r2.registros.length}`);
   assert(r2.registros[0].referencia === 'ANV-001', 'Numero do processo nao foi mapeado corretamente');
 
-  const r3 = importarBaseInternaDeArquivo(xlsxPath);
+  const r3 = await importarBaseInternaDeArquivo(xlsxPath);
   assert(r3.ok, 'XLSX deveria ser processado com sucesso');
   assert(r3.registros.length === 1, `Esperado 1 registro no XLSX, obtido ${r3.registros.length}`);
   assert(r3.registros[0].embalagem === 'bisnaga', 'Inferencia de embalagem no XLSX falhou');
@@ -258,9 +267,7 @@ const run = () => {
   console.log('PASS: importacao manual de base interna validada em CSV, ANVISA e XLSX');
 };
 
-try {
-  run();
-} catch (error) {
+run().catch((error) => {
   console.error('FAIL:', error.message || error);
   process.exit(1);
-}
+});
