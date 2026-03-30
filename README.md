@@ -25,7 +25,6 @@ Insira abaixo capturas e/ou GIFs reais do app:
 - [INSERIR SCREENSHOT 2 - Cadastro com escaneamento EAN]
 - [INSERIR SCREENSHOT 3 - Filtros avancados]
 - [INSERIR SCREENSHOT 4 - Analise de vencimento]
-- [INSERIR GIF 1 - Fluxo completo de cadastro ate exportacao]
 
 ## Problema Que o Projeto Resolve
 
