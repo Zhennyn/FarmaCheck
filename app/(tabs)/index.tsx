@@ -2342,18 +2342,6 @@ const renderListaHeader = (
           <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
         </TouchableOpacity>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
-        <View style={styles.quickChipRow}>
-          <TouchableOpacity style={[styles.quickChip, filtroUnidadeMedida === 'todos' && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida('todos')}>
-            <Text style={[styles.quickChipText, filtroUnidadeMedida === 'todos' && styles.quickChipTextActive]}>Todas medidas</Text>
-          </TouchableOpacity>
-          {OPCOES_UNIDADE_MEDIDA.map((opcao) => (
-            <TouchableOpacity key={opcao.valor} style={[styles.quickChip, filtroUnidadeMedida === opcao.valor && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida(opcao.valor)}>
-              <Text style={[styles.quickChipText, filtroUnidadeMedida === opcao.valor && styles.quickChipTextActive]}>{opcao.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
       {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0) && (
         <TouchableOpacity
           style={styles.clearFiltersBtn}

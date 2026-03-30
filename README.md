@@ -19,12 +19,22 @@ Controle de validade mal executado gera perda financeira, risco sanitario e retr
 
 ## Demonstracao Visual
 
-Insira abaixo capturas e/ou GIFs reais do app:
+### Galeria de telas
 
-- [INSERIR SCREENSHOT 1 - Dashboard inicial]
-- [INSERIR SCREENSHOT 2 - Cadastro com escaneamento EAN]
-- [INSERIR SCREENSHOT 3 - Filtros avancados]
-- [INSERIR SCREENSHOT 4 - Analise de vencimento]
+> Salve os arquivos nesta pasta para manter o README organizado:
+> `assets/images/screenshots/`
+
+| Dashboard | Novo registro |
+| --- | --- |
+| ![Dashboard FarmaCheck](assets/images/screenshots/01-dashboard.png) | ![Novo registro FarmaCheck](assets/images/screenshots/02-novo-registro.png) |
+
+| Filtros avancados | Resumo do turno |
+| --- | --- |
+| ![Filtros avancados FarmaCheck](assets/images/screenshots/03-filtros-avancados.png) | ![Resumo do turno FarmaCheck](assets/images/screenshots/04-resumo-turno.png) |
+
+### GIF recomendado
+
+- [INSERIR GIF - fluxo completo de cadastro ate aplicacao de filtros e visualizacao de resumo]
 
 ## Problema Que o Projeto Resolve
 
