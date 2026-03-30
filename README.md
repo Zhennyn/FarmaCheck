@@ -1,162 +1,200 @@
 # FarmaCheck
 
-FarmaCheck e um aplicativo React Native com foco offline-first para auditoria de validade em farmacias e operacoes de inventario.
+![Status](https://img.shields.io/badge/status-em%20desenvolvimento-2563EB)
+![Plataforma](https://img.shields.io/badge/plataforma-React%20Native%20%7C%20Expo-0F172A)
+![Offline First](https://img.shields.io/badge/arquitetura-offline--first-16A34A)
+![Licenca](https://img.shields.io/badge/licenca-MIT-informational)
 
-Ele ajuda equipes a escanear codigos EAN, registrar lotes de medicamentos, monitorar riscos de vencimento e exportar relatorios acionaveis diretamente no dispositivo movel.
+Aplicativo mobile para auditoria de validade e operacoes de inventario em farmacia, com foco em velocidade no dia a dia, rastreabilidade e operacao sem dependencia de internet.
 
-## Problema Que Este Projeto Resolve
+## Visao Geral
 
-Equipes de farmacia frequentemente controlam validade em planilhas ou anotacoes em papel, o que gera atrasos, perda de informacao e desperdicio evitavel.
+O FarmaCheck nasceu de uma necessidade real: substituir controles manuais em papel e planilhas por um fluxo confiavel, rapido e padronizado para equipes de farmacia.
 
-O FarmaCheck oferece um fluxo pronto para operacao para:
-- escanear produtos rapidamente
-- manter dados de inventario locais e disponiveis sem internet
-- identificar produtos de alto risco por janela de vencimento
-- exportar relatorios estruturados para operacao e conformidade
+Com ele, a operacao consegue escanear produtos, registrar lotes e validades, identificar riscos e gerar relatorios acionaveis diretamente no celular.
 
-## Funcionalidades
+### Por que isso importa
+
+Controle de validade mal executado gera perda financeira, risco sanitario e retrabalho operacional. O FarmaCheck reduz esses gargalos com dados estruturados e rotina orientada por risco.
+
+## Demonstracao Visual
+
+Insira abaixo capturas e/ou GIFs reais do app:
+
+- [INSERIR SCREENSHOT 1 - Dashboard inicial]
+- [INSERIR SCREENSHOT 2 - Cadastro com escaneamento EAN]
+- [INSERIR SCREENSHOT 3 - Filtros avancados]
+- [INSERIR SCREENSHOT 4 - Analise de vencimento]
+- [INSERIR GIF 1 - Fluxo completo de cadastro ate exportacao]
+
+## Problema Que o Projeto Resolve
+
+Em muitas farmacias, a conferencia de validade ainda depende de controles manuais, com baixa rastreabilidade e risco de erro humano.
+
+O FarmaCheck resolve isso com:
+
+- operacao offline-first para uso no piso da loja
+- padronizacao do cadastro e da auditoria
+- classificacao automatica de risco por vencimento
+- historico auditavel de alteracoes
+- exportacao estruturada para acompanhamento gerencial
+
+### Por que isso importa
+
+A farmacia ganha previsibilidade na operacao, resposta mais rapida para itens criticos e base de dados confiavel para tomada de decisao.
+
+## Funcionalidades Principais
 
 - Escaneamento de codigo EAN com camera
-- Cache local de produtos e operacao offline-first
-- CRUD de inventario com metadados do colaborador
-- Analise de vencimento e estrategia de desconto/status
-- Filtros avancados por status, colaborador, medida e tipo de embalagem
+- Cache local e operacao offline-first (SQLite + AsyncStorage)
+- CRUD de inventario com metadados de colaborador
+- Analise de vencimento com classificacao de risco (critico, atencao, ok)
+- Filtros avancados por status, colaborador, validade e embalagem
 - Exportacao XLSX com multiplas abas de relatorio
-- Fluxo de importacao CSV/XLSX
-- Lembretes locais e notificacoes no app
-- Trilha historica de auditoria em SQLite
+- Importacao CSV/XLSX para carga inicial
+- Lembretes e notificacoes locais
+- Trilha historica de auditoria
 
 ## Stack Tecnica
 
-- React Native
-- Expo (Expo Router)
-- TypeScript
-- SQLite (expo-sqlite)
-- AsyncStorage
-- ExcelJS para geracao de planilhas
-- Jest para testes unitarios
-- React Native Testing Library (disponivel para testes de UI)
+### Core
 
-## Visao Geral da Arquitetura
+- ![React Native](https://img.shields.io/badge/React%20Native-20232A?logo=react&logoColor=61DAFB) React Native
+- ![Expo](https://img.shields.io/badge/Expo-000020?logo=expo&logoColor=white) Expo Router
+- ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) TypeScript
 
-O projeto esta sendo refatorado para uma arquitetura orientada a features, separando UI de regras de negocio e integracoes externas.
+### Persistencia e Dados
 
-### Principios principais
+- ![SQLite](https://img.shields.io/badge/SQLite-07405E?logo=sqlite&logoColor=white) expo-sqlite
+- ![AsyncStorage](https://img.shields.io/badge/AsyncStorage-local%20storage-334155) AsyncStorage
+- ![ExcelJS](https://img.shields.io/badge/ExcelJS-relatorios%20XLSX-15803D) ExcelJS
 
-- Manter as telas focadas em renderizacao e interacao do usuario
-- Mover logica de negocio para modulos puros e testaveis
-- Centralizar responsabilidades de banco em servicos dedicados
-- Encapsular chamadas de APIs externas atras de limites de servico
-- Reutilizar tipos de dominio em todas as camadas
+### Qualidade
 
-## Estrutura de Pastas
+- ![Jest](https://img.shields.io/badge/Jest-C21325?logo=jest&logoColor=white) Jest
+- ![RNTL](https://img.shields.io/badge/React%20Native%20Testing%20Library-testes%20UI-7C3AED) React Native Testing Library
+
+## Arquitetura e Estrutura de Pastas
+
+Arquitetura orientada a features, separando responsabilidades de UI, dominio e infraestrutura.
 
 ```text
 src/
   features/
-    inventory/
-      utils/
-      inventory.repository.ts
-      constants.ts
-      index.ts
+    inventory/     # utils, repository, constants
     scanner/
-      index.ts
     reports/
-      index.ts
-  components/
-  services/
-    open-food-facts.service.ts
-    index.ts
-  hooks/
-    use-debounced-value.ts
-  database/
-    sqlite-client.ts
-    schema.ts
-  utils/
-    string.ts
-  types/
-    inventory.ts
-
-app/
-  (tabs)/
-    index.tsx
+  components/      # componentes reutilizaveis
+  services/        # open-food-facts.service, etc
+  hooks/           # useDebouncedValue, etc
+  database/        # sqlite-client, schema
+  utils/           # funcoes auxiliares
+  types/           # tipos compartilhados
 ```
 
-## Instalacao
+### Por que isso importa
 
-### Pre-requisitos
+Essa organizacao facilita manutencao, reduz acoplamento e acelera evolucao do produto sem comprometer estabilidade.
+
+## Pre-requisitos
 
 - Node.js 18+
 - npm 9+
 - Expo CLI via npx
+- Ambiente Android Studio e/ou Xcode (para emuladores/simuladores)
 
-### Instalar dependencias
+## Instalacao
+
+1. Clone o repositorio.
+2. Entre na pasta do projeto.
+3. Instale as dependencias.
 
 ```bash
 npm install
 ```
 
-## Execucao do Projeto
+## Como Executar
 
-### Desenvolvimento
+### Ambiente de desenvolvimento
 
 ```bash
 npm run start
 ```
 
-### Atalhos de plataforma
+### Android
 
 ```bash
 npm run android
+```
+
+### iOS
+
+```bash
 npm run ios
+```
+
+### Web
+
+```bash
 npm run web
 ```
 
-### Lint
+### Qualidade de codigo
 
 ```bash
 npm run lint
 ```
 
-### Testes
+## Estrategia de Testes
+
+Cobertura atual focada em confiabilidade de regras de negocio:
+
+- funcoes de calculo de inventario
+- regras de validacao
+- comportamento de repositorio com adaptadores SQLite mockados
+
+Comandos principais:
 
 ```bash
 npm run test
 ```
 
-## Capturas de Tela
+Proximos passos recomendados:
 
-Substitua estes placeholders por capturas reais da aplicacao.
+- casos de borda para parser de importacao/exportacao
+- fluxos criticos de interface com React Native Testing Library
+- testes de integracao para inicializacao de schema SQLite
 
-- [ ] Painel inicial
-- [ ] Formulario de cadastro de produto
-- [ ] Leitor de codigo de barras
-- [ ] Analise de vencimento e filtros
-- [ ] Fluxo de exportacao/relatorio
+### Por que isso importa
 
-## Estrategia de Testes
+Em operacao de farmacia, erro de regra pode gerar impacto direto em descarte e compliance. Testes reduzindo regressao nao sao opcionais.
 
-Os testes automatizados atuais focam em confiabilidade de dominio:
+## Melhorias Futuras Planejadas
 
-- funcoes de calculo de inventario
-- regras de validacao de inventario
-- comportamento do repositorio com adaptadores SQLite mockados
+- modularizar trechos remanescentes da tela principal em telas por feature
+- adicionar testes E2E com Detox
+- adicionar pipeline de CI (lint, teste e type-check)
+- ampliar observabilidade de erros e eventos operacionais
+- avaliar sincronizacao em nuvem mantendo modo offline-first
 
-Proximos passos sugeridos de cobertura:
-- casos de borda no parser de importacao/exportacao
-- fluxos criticos de UI com React Native Testing Library
-- testes de integracao para inicializacao do schema SQLite
+## Como Contribuir
 
-## Melhorias Futuras
+Contribuicoes sao bem-vindas.
 
-- Modularizar o restante do codigo da tela principal em telas independentes por feature
-- Adicionar injecao de dependencia para facilitar testes de integracao
-- Adicionar testes E2E (Detox)
-- Expandir i18n no futuro e realizar auditoria de acessibilidade
-- Adicionar pipeline de CI com lint, testes e checagem de tipos
-- Adicionar opcao de sincronizacao em nuvem preservando o comportamento offline-first
+1. Crie uma branch a partir da `master`.
+2. Implemente a melhoria/correcao com testes.
+3. Garanta que lint e testes passam localmente.
+4. Abra um Pull Request com contexto, impacto e evidencias (prints/logs).
+
+Checklist sugerido para PR:
+
+- [ ] escopo claro e objetivo
+- [ ] sem regressao funcional
+- [ ] testes adicionados/atualizados
+- [ ] documentacao atualizada (quando aplicavel)
 
 ## Licenca
 
-Este repositorio pode ser adaptado para portfolio ou uso operacional interno.
-Adicione uma licenca formal (MIT/Apache-2.0) antes da distribuicao publica.
+Este projeto esta licenciado sob a licenca MIT.
+
+Se sua operacao exigir distribuicao publica ou uso comercial, valide requisitos juridicos internos antes de publicar builds.
