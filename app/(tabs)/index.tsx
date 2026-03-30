@@ -12,130 +12,47 @@ import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
 import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '../../hooks/use-color-scheme';
-
-type Produto = {
-  id: string;
-  nome: string;
-  codigo: string;
-  apresentacao?: string;
-  embalagem?: TipoEmbalagem;
-  unidade_medida?: UnidadeMedida;
-  quantidade_medida?: number;
-  validade: string;
-  validades_adicionais?: string;
-  custo: number;
-  qtd: number;
-  colaborador: string;
-  lote?: string;
-  observacao?: string;
-  status_conferencia?: StatusConferencia;
-};
-
-type UnidadeMedida = 'unidades' | 'comprimidos' | 'capsulas' | 'drageas' | 'ml' | 'g' | 'gotas' | 'ampolas' | 'envelopes' | 'bisnagas' | 'frascos' | 'sprays';
-
-type TipoEmbalagem = 'frasco' | 'bisnaga' | 'envelope' | 'spray' | 'ampola';
-
-type StatusConferencia = 'pendente' | 'conferido' | 'resolvido';
-
-type TipoFiltro = 'todos' | 'proximos' | 'no_prazo' | 'vencidos';
-type ThemePreference = 'system' | 'light' | 'dark';
-
-type OpenFoodFactsResponse = {
-  status?: number;
-  product?: {
-    product_name?: string;
-    generic_name?: string;
-    quantity?: string;
-  };
-};
-
-type CadastroEan = {
-  codigo: string;
-  nome: string;
-  apresentacao: string;
-  custo: number;
-  embalagem?: TipoEmbalagem;
-  unidade_medida?: UnidadeMedida;
-  quantidade_medida?: number;
-  referencia?: string;
-};
-
-type HistoricoRegistro = {
-  id: string;
-  produto_id: string;
-  acao: string;
-  nome: string;
-  codigo: string;
-  colaborador: string;
-  data_evento: number;
-  detalhes: string;
-  tipo_produto?: string;
-};
+import { createBaseSchema } from '../../src/database/schema';
+import { closeAppDatabase, openAppDatabase } from '../../src/database/sqlite-client';
+import {
+  formatDatePtBr,
+  formatMeasuredTotal,
+  getDaysUntilExpiry,
+  getDiscountStatus,
+  inferMeasureFromPresentation,
+  inferPackageType,
+  nearestExpiry,
+  normalizeIsoDate,
+  OPCOES_UNIDADE_MEDIDA,
+  parseMeasureNumber,
+  parseStringList,
+  ROTULOS_STATUS_CONFERENCIA,
+  ROTULOS_TIPO_EMBALAGEM,
+  ROTULOS_UNIDADE_MEDIDA,
+  summarizeMeasuredTotals,
+  toDate,
+  validateInventoryEntry,
+} from '../../src/features/inventory';
+import { findProductByEan } from '../../src/services';
+import type {
+  CadastroEan,
+  HistoricoRegistro,
+  Produto,
+  ProdutoComAnalise,
+  StatusConferencia,
+  ThemePreference,
+  TipoEmbalagem,
+  TipoFiltro,
+  UnidadeMedida
+} from '../../src/types/inventory';
+import { digitsOnly, normalizeHeader } from '../../src/utils/string';
 
 type BancoDados = Awaited<ReturnType<typeof SQLite.openDatabaseAsync>>;
-type ColunaTabela = { name: string };
-type StatusValidadeInfo = {
-  tipo: 'ok' | 'markdown' | 'retirar' | 'vencido';
-  label: string;
-  cor: string;
-  bg: string;
-  border: string;
-};
-type ProdutoComAnalise = Produto & {
-  diasAteValidade: number;
-  statusValidade: StatusValidadeInfo;
-  embalagemCalculada: TipoEmbalagem | null;
-  totalMedidoCalculado: string | null;
-};
-
-const OPCOES_UNIDADE_MEDIDA: { valor: UnidadeMedida; label: string }[] = [
-  { valor: 'unidades', label: 'Unid' },
-  { valor: 'comprimidos', label: 'Comp' },
-  { valor: 'capsulas', label: 'Caps' },
-  { valor: 'drageas', label: 'Dragea' },
-  { valor: 'ml', label: 'ML' },
-  { valor: 'g', label: 'Gramas' },
-  { valor: 'gotas', label: 'Gotas' },
-  { valor: 'ampolas', label: 'Ampola' },
-  { valor: 'envelopes', label: 'Envelope' },
-  { valor: 'bisnagas', label: 'Bisnaga' },
-  { valor: 'frascos', label: 'Frasco' },
-  { valor: 'sprays', label: 'Spray' },
-];
-
-const ROTULOS_UNIDADE_MEDIDA: Record<UnidadeMedida, string> = {
-  unidades: 'unid',
-  comprimidos: 'comp',
-  capsulas: 'caps',
-  drageas: 'drageas',
-  ml: 'ml',
-  g: 'g',
-  gotas: 'gotas',
-  ampolas: 'ampolas',
-  envelopes: 'envelopes',
-  bisnagas: 'bisnagas',
-  frascos: 'frascos',
-  sprays: 'sprays',
-};
-
-const ROTULOS_TIPO_EMBALAGEM: Record<TipoEmbalagem, string> = {
-  frasco: 'frasco',
-  bisnaga: 'bisnaga',
-  envelope: 'envelope',
-  spray: 'spray',
-  ampola: 'ampola',
-};
-
-const ROTULOS_STATUS_CONFERENCIA: Record<StatusConferencia, string> = {
-  pendente: 'pendente',
-  conferido: 'conferido',
-  resolvido: 'resolvido',
-};
 
 
 
@@ -183,13 +100,6 @@ const OPCOES_FREQUENCIA_ALERTA_RISCO_HORAS = [3, 6, 12, 24] as const;
 const FREQUENCIA_LEMBRETE_PADRAO_HORAS = 4;
 const FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS = 12;
 
-const INDICES_SQLITE = [
-  'CREATE INDEX IF NOT EXISTS idx_produtos_validade ON produtos(validade)',
-  'CREATE INDEX IF NOT EXISTS idx_produtos_codigo ON produtos(codigo)',
-  'CREATE INDEX IF NOT EXISTS idx_produtos_colaborador ON produtos(colaborador)',
-  'CREATE INDEX IF NOT EXISTS idx_produtos_status_conferencia ON produtos(status_conferencia)',
-  'CREATE INDEX IF NOT EXISTS idx_historico_data_evento ON historico_produtos(data_evento)',
-];
 const TIPOS_PLANILHA = [
   'text/csv',
   'text/plain',
@@ -227,181 +137,21 @@ Notifications.setNotificationHandler({
   },
 });
 
-const normalizarTextoMedida = (valor?: string) => (valor || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-const parseNumeroMedida = (valor: string | undefined) => {
-const texto = String(valor || '').replace(',', '.');
-const numero = parseFloat(texto);
-return Number.isFinite(numero) ? numero : 0;
-};
-
 const normalizarOpcaoHoras = (valor: string | null | undefined, opcoes: readonly number[], padrao: number) => {
 const numero = Number(valor);
 return opcoes.includes(numero) ? numero : padrao;
 };
 
-const inferirMedidaDaApresentacao = (apresentacao?: string) => {
-const texto = normalizarTextoMedida(apresentacao);
-if (!texto) return { unidade_medida: 'unidades' as UnidadeMedida, quantidade_medida: 0 };
-
-const matchMl = texto.match(/(\d+(?:[.,]\d+)?)\s*ml\b/);
-if (matchMl) return { unidade_medida: 'ml' as UnidadeMedida, quantidade_medida: parseNumeroMedida(matchMl[1]) };
-
-const matchGramas = texto.match(/(\d+(?:[.,]\d+)?)\s*g\b/);
-if (matchGramas) return { unidade_medida: 'g' as UnidadeMedida, quantidade_medida: parseNumeroMedida(matchGramas[1]) };
-
-const matchGotas = texto.match(/(\d+(?:[.,]\d+)?)\s*gotas?\b/);
-if (matchGotas) return { unidade_medida: 'gotas' as UnidadeMedida, quantidade_medida: parseNumeroMedida(matchGotas[1]) };
-
-const matchX = texto.match(/\bx\s*(\d+(?:[.,]\d+)?)\b/);
-const matchCt = texto.match(/\bct\s*(\d+(?:[.,]\d+)?)\b/);
-const quantidadePadrao = parseNumeroMedida(matchX?.[1] || matchCt?.[1]);
-
-if (/\b(com|comp|comprimido|comprimidos)\b/.test(texto)) {
-  return { unidade_medida: 'comprimidos' as UnidadeMedida, quantidade_medida: quantidadePadrao };
-}
-
-if (/\b(cap|caps|capsula|capsulas)\b/.test(texto)) {
-  return { unidade_medida: 'capsulas' as UnidadeMedida, quantidade_medida: quantidadePadrao };
-}
-
-if (/\b(dragea|drageas)\b/.test(texto)) {
-  return { unidade_medida: 'drageas' as UnidadeMedida, quantidade_medida: quantidadePadrao };
-}
-
-if (/\b(amp|ampola|ampolas|fa)\b/.test(texto)) {
-  return { unidade_medida: 'ampolas' as UnidadeMedida, quantidade_medida: quantidadePadrao || 1 };
-}
-
-if (/\b(env|envelope|envelopes|sache|saches|saqueta|saquetas)\b/.test(texto)) {
-  return { unidade_medida: 'envelopes' as UnidadeMedida, quantidade_medida: quantidadePadrao || 1 };
-}
-
-if (/\b(bisnaga|bisnagas|tubo|tubos|pomada|creme|gel)\b/.test(texto)) {
-  return { unidade_medida: 'bisnagas' as UnidadeMedida, quantidade_medida: quantidadePadrao || 1 };
-}
-
-if (/\b(frasco|frascos|fras)\b/.test(texto)) {
-  return { unidade_medida: 'frascos' as UnidadeMedida, quantidade_medida: quantidadePadrao || 1 };
-}
-
-if (/\b(spray|sprayes|aerossol|aerosol)\b/.test(texto)) {
-  return { unidade_medida: 'sprays' as UnidadeMedida, quantidade_medida: quantidadePadrao || 1 };
-}
-
-return { unidade_medida: 'unidades' as UnidadeMedida, quantidade_medida: quantidadePadrao };
-};
-
-const inferirTipoEmbalagem = (apresentacao?: string): TipoEmbalagem | null => {
-const texto = normalizarTextoMedida(apresentacao);
-if (!texto) return null;
-
-if (/\b(amp|ampola|ampolas|fa)\b/.test(texto)) return 'ampola';
-if (/\b(env|envelope|envelopes|sache|saches|saqueta|saquetas)\b/.test(texto)) return 'envelope';
-if (/\b(bisnaga|bisnagas|tubo|tubos|pomada|creme|gel)\b/.test(texto)) return 'bisnaga';
-if (/\b(spray|sprayes|aerossol|aerosol)\b/.test(texto)) return 'spray';
-if (/\b(frasco|frascos|fras)\b/.test(texto)) return 'frasco';
-
-return null;
-};
-
-const normalizarDataISO = (valor: string | undefined) => {
-if (!valor) return '';
-const texto = valor.trim().replace(/^\uFEFF/, '');
-if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
-
-const partesBR = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-if (partesBR) return `${partesBR[3]}-${partesBR[2]}-${partesBR[1]}`;
-
-return texto;
-};
-
-const converterDataParaDate = (valor?: string) => {
-const dataNormalizada = normalizarDataISO(valor);
-if (!/^\d{4}-\d{2}-\d{2}$/.test(dataNormalizada)) return new Date();
-
-const [ano, mes, dia] = dataNormalizada.split('-').map(Number);
-return new Date(ano, mes - 1, dia);
-};
-
-const obterStatusDesconto = (dataValidadeStr: string | undefined): StatusValidadeInfo => {
-if (!dataValidadeStr) return { tipo: 'ok', label: 'SEM DATA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
-const hoje = new Date(); hoje.setHours(0,0,0,0);
-const partes = normalizarDataISO(dataValidadeStr).split('-');
-if (partes.length !== 3) return { tipo: 'ok', label: 'DATA ERRADA', cor: '#6B7280', bg: '#F3F4F6', border: '#E5E7EB' };
-
-const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2])); vencimento.setHours(0,0,0,0);
-const diffTime = vencimento.getTime() - hoje.getTime();
-const diffDias = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-if (diffDias < 0) return { tipo: 'vencido', label: 'VENCIDO', cor: '#991B1B', bg: '#FEE2E2', border: '#FCA5A5' };
-if (diffDias <= 30) return { tipo: 'retirar', label: 'RETIRAR', cor: '#B91C1C', bg: '#FEF2F2', border: '#FECACA' };
-if (diffDias <= 60) return { tipo: 'markdown', label: '60% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
-if (diffDias <= 90) return { tipo: 'markdown', label: '40% DESC', cor: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' };
-if (diffDias <= 120) return { tipo: 'markdown', label: '30% DESC', cor: '#B45309', bg: '#FFFBEB', border: '#FDE68A' };
-if (diffDias <= 180) return { tipo: 'markdown', label: '20% DESC', cor: '#A16207', bg: '#FEFCE8', border: '#FEF08A' };
-return { tipo: 'ok', label: 'NO PRAZO', cor: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' };
-};
-
-const obterDiasAteValidade = (dataValidadeStr: string | undefined) => {
-if (!dataValidadeStr) return Number.POSITIVE_INFINITY;
-const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-const partes = normalizarDataISO(dataValidadeStr).split('-');
-if (partes.length !== 3) return Number.POSITIVE_INFINITY;
-const vencimento = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-vencimento.setHours(0, 0, 0, 0);
-return Math.ceil((vencimento.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
-};
-
-const formataDataBR = (dataStr: string | undefined) => {
-if (!dataStr) return '--/--/----';
-const partes = normalizarDataISO(dataStr).split('-');
-if (partes.length !== 3) return dataStr;
-return `${partes[2]}/${partes[1]}/${partes[0]}`;
-};
-
-const lerListaJson = (valor?: string): string[] => {
-if (!valor) return [];
-
-try {
-  const lista = JSON.parse(valor) as unknown;
-  if (!Array.isArray(lista)) return [];
-  return lista.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-} catch {
-  return [];
-}
-};
-
-const extrairValidadeMaisProxima = (validade: string, validadesAdicionaisJson?: string): string => {
-const datas: Date[] = [];
-const dataAtual = new Date();
-dataAtual.setHours(0, 0, 0, 0);
-
-if (validade) {
-  const data = new Date(validade);
-  data.setHours(0, 0, 0, 0);
-  datas.push(data);
-}
-
-if (validadesAdicionaisJson) {
-  const adicionais = lerListaJson(validadesAdicionaisJson);
-  for (const d of adicionais) {
-    const data = new Date(d);
-    data.setHours(0, 0, 0, 0);
-    datas.push(data);
-  }
-}
-
-if (datas.length === 0) return validade;
-
-const maisproxima = datas.reduce((prev, current) => {
-  const diffPrev = Math.abs(prev.getTime() - dataAtual.getTime());
-  const diffCurrent = Math.abs(current.getTime() - dataAtual.getTime());
-  return diffCurrent < diffPrev ? current : prev;
-});
-
-return maisproxima.toISOString().split('T')[0];
-};
+const inferirMedidaDaApresentacao = inferMeasureFromPresentation;
+const inferirTipoEmbalagem = inferPackageType;
+const normalizarDataISO = normalizeIsoDate;
+const parseNumeroMedida = parseMeasureNumber;
+const converterDataParaDate = toDate;
+const obterStatusDesconto = getDiscountStatus;
+const obterDiasAteValidade = getDaysUntilExpiry;
+const formataDataBR = formatDatePtBr;
+const lerListaJson = parseStringList;
+const extrairValidadeMaisProxima = nearestExpiry;
 
 const obterResumoValidadesExtras = (validadesAdicionaisJson?: string) => {
 const validadesExtras = lerListaJson(validadesAdicionaisJson);
@@ -575,40 +325,10 @@ const importacaoEmAndamentoRef = useRef(false);
 const confirmacaoAutoExclusaoAbertaRef = useRef(false);
 
 const gerarId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-const formatarTotalMedido = (produto: Pick<Produto, 'qtd' | 'quantidade_medida' | 'unidade_medida'>) => {
-const quantidadeBase = Number(produto.quantidade_medida || 0);
-if (!quantidadeBase) return null;
-
-const total = (produto.qtd || 0) * quantidadeBase;
-const unidade = ROTULOS_UNIDADE_MEDIDA[produto.unidade_medida || 'unidades'];
-const valor = Number.isInteger(total) ? String(total) : total.toFixed(2).replace('.', ',');
-return `${valor} ${unidade}`;
-};
-
-const resumirTotaisMedidos = (lista: Produto[]) => {
-const totais = new Map<UnidadeMedida, number>();
-
-lista.forEach((produto) => {
-  const quantidadeBase = Number(produto.quantidade_medida || 0);
-  if (!quantidadeBase) return;
-
-  const unidade = produto.unidade_medida || 'unidades';
-  const totalAtual = totais.get(unidade) || 0;
-  totais.set(unidade, totalAtual + ((produto.qtd || 0) * quantidadeBase));
-});
-
-return Array.from(totais.entries())
-  .filter(([, total]) => total > 0)
-  .sort((a, b) => b[1] - a[1])
-  .map(([unidade, total]) => {
-    const valor = Number.isInteger(total) ? String(total) : total.toFixed(2).replace('.', ',');
-    return `${valor} ${ROTULOS_UNIDADE_MEDIDA[unidade]}`;
-  });
-};
-
-const normalizarCabecalho = (valor: string) => valor.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-const extrairSomenteNumeros = (valor: string) => valor.replace(/\D+/g, '');
+const formatarTotalMedido = formatMeasuredTotal;
+const resumirTotaisMedidos = summarizeMeasuredTotals;
+const normalizarCabecalho = normalizeHeader;
+const extrairSomenteNumeros = digitsOnly;
 
 const detectarSeparador = (linha: string) => {
 const qtdPontoVirgula = (linha.match(/;/g) || []).length;
@@ -771,7 +491,7 @@ setNovaQuantidadeMedida(medidaInferida.quantidade_medida ? String(medidaInferida
 
 const abrirBanco = useCallback(async () => {
 if (!bancoAbertoRef.current) {
-  bancoAbertoRef.current = SQLite.openDatabaseAsync('farmacia.db');
+  bancoAbertoRef.current = openAppDatabase();
 }
 
 return await bancoAbertoRef.current;
@@ -780,9 +500,8 @@ return await bancoAbertoRef.current;
 const fecharBancoAtual = useCallback(async () => {
 if (!bancoAbertoRef.current) return;
 
-const db = await bancoAbertoRef.current;
-await db.closeAsync();
- bancoAbertoRef.current = null;
+await closeAppDatabase();
+bancoAbertoRef.current = null;
 }, []);
 
 const configurarNotificacoes = useCallback(async (solicitarPermissao = false) => {
@@ -944,32 +663,12 @@ await db.runAsync(
 );
 }, [abrirBanco]);
 
-const garantirColuna = useCallback(async (db: BancoDados, tabela: string, definicao: string) => {
-const nomeColuna = definicao.trim().split(/\s+/)[0];
-const colunas = await db.getAllAsync<ColunaTabela>(`PRAGMA table_info(${tabela})`);
-if (colunas.some((coluna) => coluna.name === nomeColuna)) return;
-await db.runAsync(`ALTER TABLE ${tabela} ADD COLUMN ${definicao}`);
-}, []);
-
 const gerarAlertasCadastro = () => {
-const alertas: string[] = [];
-const embalagemInferida = inferirTipoEmbalagem(novaApresentacao);
-const medidaInferida = inferirMedidaDaApresentacao(novaApresentacao).unidade_medida;
-
-if (embalagemInferida === 'frasco' && !['ml', 'gotas', 'g', 'unidades'].includes(novaUnidadeMedida)) {
-  alertas.push('Frasco normalmente combina com ml, gotas, g ou unidades.');
-}
-  if (embalagemInferida === 'bisnaga' && novaUnidadeMedida !== 'g') {
-  alertas.push('Bisnaga normalmente usa medida em g.');
-}
-if (novaApresentacao && medidaInferida !== 'unidades' && medidaInferida !== novaUnidadeMedida) {
-  alertas.push(`A apresentação sugere ${ROTULOS_UNIDADE_MEDIDA[medidaInferida]}, mas o cálculo está em ${ROTULOS_UNIDADE_MEDIDA[novaUnidadeMedida]}.`);
-}
-if ((novaUnidadeMedida === 'ml' || novaUnidadeMedida === 'g' || novaUnidadeMedida === 'gotas') && !parseNumeroMedida(novaQuantidadeMedida)) {
-  alertas.push('Conteúdo por embalagem está vazio para uma medida quantitativa.');
-}
-
-return alertas;
+return validateInventoryEntry({
+  presentation: novaApresentacao,
+  unit: novaUnidadeMedida,
+  measureQuantity: novaQuantidadeMedida,
+});
 };
 
 const salvarEanNoCache = useCallback(async (cadastro: CadastroEan) => {
@@ -1070,68 +769,7 @@ setTempModoAcessibilidade(modoA11y === 'true');
 
   // 2. Inicializar Banco de Dados (SQLite)
   const db = await abrirBanco();
-  await db.runAsync(
-    `CREATE TABLE IF NOT EXISTS produtos (
-      id TEXT PRIMARY KEY NOT NULL,
-      nome TEXT,
-      codigo TEXT,
-      apresentacao TEXT,
-      embalagem TEXT,
-      unidade_medida TEXT,
-      quantidade_medida REAL DEFAULT 0,
-      validade TEXT,
-      validades_adicionais TEXT,
-      custo REAL,
-      qtd INTEGER,
-      colaborador TEXT,
-      lote TEXT,
-      observacao TEXT,
-      status_conferencia TEXT DEFAULT 'pendente'
-    )`
-  );
-  await db.runAsync(
-    `CREATE TABLE IF NOT EXISTS ean_cache (
-      codigo TEXT PRIMARY KEY NOT NULL,
-      nome TEXT NOT NULL,
-      apresentacao TEXT,
-      embalagem TEXT,
-      custo REAL DEFAULT 0,
-      unidade_medida TEXT,
-      quantidade_medida REAL DEFAULT 0,
-      referencia TEXT,
-      atualizado_em INTEGER
-    )`
-  );
-  await db.runAsync(
-    `CREATE TABLE IF NOT EXISTS historico_produtos (
-      id TEXT PRIMARY KEY NOT NULL,
-      produto_id TEXT,
-      acao TEXT,
-      nome TEXT,
-      codigo TEXT,
-      colaborador TEXT,
-      data_evento INTEGER,
-      detalhes TEXT,
-      tipo_produto TEXT
-    )`
-  );
-
-  await garantirColuna(db, 'ean_cache', 'referencia TEXT');
-  await garantirColuna(db, 'produtos', "unidade_medida TEXT DEFAULT 'unidades'");
-  await garantirColuna(db, 'produtos', 'embalagem TEXT');
-  await garantirColuna(db, 'produtos', 'quantidade_medida REAL DEFAULT 0');
-  await garantirColuna(db, 'produtos', 'validades_adicionais TEXT');
-  await garantirColuna(db, 'produtos', 'lote TEXT');
-  await garantirColuna(db, 'produtos', 'observacao TEXT');
-  await garantirColuna(db, 'produtos', "status_conferencia TEXT DEFAULT 'pendente'");
-  await garantirColuna(db, 'ean_cache', "unidade_medida TEXT DEFAULT 'unidades'");
-  await garantirColuna(db, 'ean_cache', 'embalagem TEXT');
-  await garantirColuna(db, 'ean_cache', 'quantidade_medida REAL DEFAULT 0');
-  await garantirColuna(db, 'historico_produtos', 'tipo_produto TEXT');
-
-  for (const sqlIndice of INDICES_SQLITE) {
-    await db.runAsync(sqlIndice);
-  }
+  await createBaseSchema(db);
 
   const primeiraInstalacaoConcluida = configuracoes[CHAVE_PRIMEIRA_INSTALACAO];
   if (!primeiraInstalacaoConcluida) {
@@ -1160,7 +798,7 @@ setTempModoAcessibilidade(modoA11y === 'true');
 }
 
 
-}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico, garantirColuna, sincronizarEstadoNotificacoes]);
+}, [abrirBanco, carregarBaseInternaEmbutida, carregarHistorico, sincronizarEstadoNotificacoes]);
 
 // ==========================================
 // INICIALIZAÇÃO: ASYNC STORAGE & SQLITE
@@ -1576,37 +1214,16 @@ try {
     setBuscandoNaApi(false);
     return;
   }
-  
-  const fontes = [
-    `https://world.openfoodfacts.org/api/v0/product/${codigo}.json`,
-    `https://br.openfoodfacts.org/api/v0/product/${codigo}.json`,
-  ];
-  
-  for (const url of fontes) {
-    try {
-      const response = await fetch(url);
-      const data = await response.json() as OpenFoodFactsResponse;
-      if (data.status === 1 && data.product && (data.product.product_name || data.product.generic_name)) {
-        const cadastroEncontrado = {
-          codigo,
-          nome: data.product.product_name || data.product.generic_name || '',
-          apresentacao: data.product.quantity || '',
-          embalagem: inferirTipoEmbalagem(data.product.quantity || '') || undefined,
-          custo: 0,
-          ...inferirMedidaDaApresentacao(data.product.quantity || ''),
-        };
 
-        preencherCamposDoProduto(cadastroEncontrado);
-        await salvarEanNoCache(cadastroEncontrado);
-        exibirNotificacao('Produto encontrado na busca online.');
-        setBuscandoNaApi(false);
-        return;
-      }
-    } catch {
-      console.log(`Fonte ${url} indisponível`);
-    }
+  const cadastroEncontrado = await findProductByEan(codigo);
+  if (cadastroEncontrado) {
+    preencherCamposDoProduto(cadastroEncontrado);
+    await salvarEanNoCache(cadastroEncontrado);
+    exibirNotificacao('Produto encontrado na busca online.');
+    setBuscandoNaApi(false);
+    return;
   }
-  
+
   setBuscandoNaApi(false);
 } catch (erro) { console.log(erro); } finally { setBuscandoNaApi(false); }
 
