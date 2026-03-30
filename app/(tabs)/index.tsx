@@ -17,6 +17,7 @@ import { BarChart } from 'react-native-chart-kit';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '../../hooks/use-color-scheme';
+import { LanguageSwitcher } from '../../src/components/language-switcher';
 import { createBaseSchema } from '../../src/database/schema';
 import { closeAppDatabase, openAppDatabase } from '../../src/database/sqlite-client';
 import {
@@ -38,6 +39,7 @@ import {
   toDate,
   validateInventoryEntry,
 } from '../../src/features/inventory';
+import { useAppTranslation } from '../../src/hooks/use-app-translation';
 import { findProductByEan } from '../../src/services';
 import type {
   CadastroEan,
@@ -57,11 +59,11 @@ type BancoDados = Awaited<ReturnType<typeof SQLite.openDatabaseAsync>>;
 
 
 const ONBOARDING_STEPS = [
-  { emoji: '💊', titulo: 'Bem-vindo ao App de Validade', descricao: 'Gerencie a validade dos produtos da sua loja com facilidade. Evite perdas e mantenha a equipe sempre sincronizada.' },
-  { emoji: '📷', titulo: 'Cadastre Produtos', descricao: 'Escaneie o EAN com a câmera ou pesquise na base ANVISA. Preencha a validade, quantidade e medida.' },
-  { emoji: '👆', titulo: 'Deslize para Gerenciar', descricao: 'Na lista principal, deslize um produto para a esquerda para revelar os botões de editar e excluir rapidamente.' },
-  { emoji: '📊', titulo: 'Relatórios e Gráficos', descricao: 'Use o menu lateral (ícone de loja) para exportar PDF e visualizar gráficos de vencimento.' },
-];
+  { emoji: '💊', tituloKey: 'index.onboarding.step1.title', descricaoKey: 'index.onboarding.step1.description' },
+  { emoji: '📷', tituloKey: 'index.onboarding.step2.title', descricaoKey: 'index.onboarding.step2.description' },
+  { emoji: '👆', tituloKey: 'index.onboarding.step3.title', descricaoKey: 'index.onboarding.step3.description' },
+  { emoji: '📊', tituloKey: 'index.onboarding.step4.title', descricaoKey: 'index.onboarding.step4.description' },
+] as const;
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
 const VERSAO_APP = '1.0.4';
@@ -168,6 +170,7 @@ return {
 };
 
 export default function App() {
+const { t } = useAppTranslation();
 const [isLoading, setIsLoading] = useState(true);
 const [permission, requestPermission] = useCameraPermissions();
 const { width } = useWindowDimensions();
@@ -1238,11 +1241,11 @@ if ([8, 11, 12, 13, 14].includes(novoCodigo.length) && !editandoId) buscarNaRede
 // LEMBRETE VISUAL ENQUANTO O APP ESTIVER ABERTO
 useEffect(() => {
 const intervalo = setInterval(() => {
-  exibirNotificacao('Lembrete: revise os produtos com vencimento proximo.');
+  exibirNotificacao(t('index.notification.reminder'));
 }, frequenciaLembreteHoras * 60 * 60 * 1000);
 
 return () => clearInterval(intervalo);
-}, [exibirNotificacao, frequenciaLembreteHoras]);
+}, [exibirNotificacao, frequenciaLembreteHoras, t]);
 
 const sanitizarTrechoArquivo = (valor: string) => valor
   .normalize('NFD')
@@ -2339,6 +2342,18 @@ const renderListaHeader = (
           <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
         </TouchableOpacity>
       </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
+        <View style={styles.quickChipRow}>
+          <TouchableOpacity style={[styles.quickChip, filtroUnidadeMedida === 'todos' && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida('todos')}>
+            <Text style={[styles.quickChipText, filtroUnidadeMedida === 'todos' && styles.quickChipTextActive]}>Todas medidas</Text>
+          </TouchableOpacity>
+          {OPCOES_UNIDADE_MEDIDA.map((opcao) => (
+            <TouchableOpacity key={opcao.valor} style={[styles.quickChip, filtroUnidadeMedida === opcao.valor && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida(opcao.valor)}>
+              <Text style={[styles.quickChipText, filtroUnidadeMedida === opcao.valor && styles.quickChipTextActive]}>{opcao.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
       {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0) && (
         <TouchableOpacity
           style={styles.clearFiltersBtn}
@@ -2670,10 +2685,13 @@ return (
       <Pressable style={StyleSheet.absoluteFillObject} onPress={fecharConfiguracoes} />
       <Animated.View style={[styles.dialogBox, { backgroundColor: theme.surface, opacity: opacidadeDialogo, transform: [{ translateY: deslocamentoDialogo }, { scale: escalaDialogo }] }]}>
         <View style={styles.dialogHeader}>
-           <Text style={[styles.dialogTitle, { color: theme.title }]}>Definições</Text>
+           <Text style={[styles.dialogTitle, { color: theme.title }]}>{t('index.settings.title')}</Text>
            <TouchableOpacity onPress={fecharConfiguracoes}><X/></TouchableOpacity>
         </View>
-        
+
+          <View style={styles.languageSwitcherSection}>
+            <LanguageSwitcher />
+          </View>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
@@ -2999,46 +3017,48 @@ return (
           <TouchableOpacity onPress={fecharFiltrosAvancados}><X/></TouchableOpacity>
         </View>
 
-        <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
-        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={filtroColaborador} onChangeText={setFiltroColaborador} placeholder="Filtrar por colaborador" placeholderTextColor={theme.muted} />
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.dialogScrollContent}>
+          <Text style={[styles.label, { color: theme.muted }]}>COLABORADOR</Text>
+          <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={filtroColaborador} onChangeText={setFiltroColaborador} placeholder="Filtrar por colaborador" placeholderTextColor={theme.muted} />
 
-        <Text style={[styles.label, { color: theme.muted }]}>STATUS DE CONFERÊNCIA</Text>
-        <View style={styles.measureOptionsWrap}>
-          <TouchableOpacity style={[styles.measureChip, filtroStatusConferencia === 'todos' && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia('todos')}><Text style={[styles.measureChipText, filtroStatusConferencia === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
-          {(['pendente', 'conferido', 'resolvido'] as StatusConferencia[]).map((status) => (
-            <TouchableOpacity key={status} style={[styles.measureChip, filtroStatusConferencia === status && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia(status)}><Text style={[styles.measureChipText, filtroStatusConferencia === status && styles.measureChipTextActive]}>{ROTULOS_STATUS_CONFERENCIA[status]}</Text></TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={[styles.label, { color: theme.muted }]}>MEDIDA</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
-          <View style={styles.quickChipRow}>
-            <TouchableOpacity style={[styles.quickChip, filtroUnidadeMedida === 'todos' && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida('todos')}><Text style={[styles.quickChipText, filtroUnidadeMedida === 'todos' && styles.quickChipTextActive]}>Todos</Text></TouchableOpacity>
-            {OPCOES_UNIDADE_MEDIDA.map((opcao) => (
-              <TouchableOpacity key={opcao.valor} style={[styles.quickChip, filtroUnidadeMedida === opcao.valor && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida(opcao.valor)}><Text style={[styles.quickChipText, filtroUnidadeMedida === opcao.valor && styles.quickChipTextActive]}>{opcao.label}</Text></TouchableOpacity>
+          <Text style={[styles.label, { color: theme.muted }]}>STATUS DE CONFERÊNCIA</Text>
+          <View style={styles.measureOptionsWrap}>
+            <TouchableOpacity style={[styles.measureChip, filtroStatusConferencia === 'todos' && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia('todos')}><Text style={[styles.measureChipText, filtroStatusConferencia === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
+            {(['pendente', 'conferido', 'resolvido'] as StatusConferencia[]).map((status) => (
+              <TouchableOpacity key={status} style={[styles.measureChip, filtroStatusConferencia === status && styles.measureChipActive]} onPress={() => setFiltroStatusConferencia(status)}><Text style={[styles.measureChipText, filtroStatusConferencia === status && styles.measureChipTextActive]}>{ROTULOS_STATUS_CONFERENCIA[status]}</Text></TouchableOpacity>
             ))}
           </View>
+
+          <Text style={[styles.label, { color: theme.muted }]}>MEDIDA</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipScroll}>
+            <View style={styles.quickChipRow}>
+              <TouchableOpacity style={[styles.quickChip, filtroUnidadeMedida === 'todos' && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida('todos')}><Text style={[styles.quickChipText, filtroUnidadeMedida === 'todos' && styles.quickChipTextActive]}>Todos</Text></TouchableOpacity>
+              {OPCOES_UNIDADE_MEDIDA.map((opcao) => (
+                <TouchableOpacity key={opcao.valor} style={[styles.quickChip, filtroUnidadeMedida === opcao.valor && styles.quickChipActive]} onPress={() => setFiltroUnidadeMedida(opcao.valor)}><Text style={[styles.quickChipText, filtroUnidadeMedida === opcao.valor && styles.quickChipTextActive]}>{opcao.label}</Text></TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <Text style={[styles.label, { color: theme.muted }]}>EMBALAGEM</Text>
+          <View style={styles.measureOptionsWrap}>
+            <TouchableOpacity style={[styles.measureChip, filtroEmbalagem === 'todos' && styles.measureChipActive]} onPress={() => setFiltroEmbalagem('todos')}><Text style={[styles.measureChipText, filtroEmbalagem === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
+            {(Object.keys(ROTULOS_TIPO_EMBALAGEM) as TipoEmbalagem[]).map((embalagem) => (
+              <TouchableOpacity key={embalagem} style={[styles.measureChip, filtroEmbalagem === embalagem && styles.measureChipActive]} onPress={() => setFiltroEmbalagem(embalagem)}><Text style={[styles.measureChipText, filtroEmbalagem === embalagem && styles.measureChipTextActive]}>{ROTULOS_TIPO_EMBALAGEM[embalagem]}</Text></TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.btnDialogAction} onPress={fecharFiltrosAvancados}>
+            <Text style={styles.btnDialogActionText}>Aplicar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.btnDialogDanger} onPress={() => {
+            setFiltroColaborador('');
+            setFiltroStatusConferencia('todos');
+            setFiltroUnidadeMedida('todos');
+            setFiltroEmbalagem('todos');
+          }}>
+            <Text style={styles.btnDialogDangerText}>Limpar Filtros</Text>
+          </TouchableOpacity>
         </ScrollView>
-
-        <Text style={[styles.label, { color: theme.muted }]}>EMBALAGEM</Text>
-        <View style={styles.measureOptionsWrap}>
-          <TouchableOpacity style={[styles.measureChip, filtroEmbalagem === 'todos' && styles.measureChipActive]} onPress={() => setFiltroEmbalagem('todos')}><Text style={[styles.measureChipText, filtroEmbalagem === 'todos' && styles.measureChipTextActive]}>Todos</Text></TouchableOpacity>
-          {(Object.keys(ROTULOS_TIPO_EMBALAGEM) as TipoEmbalagem[]).map((embalagem) => (
-            <TouchableOpacity key={embalagem} style={[styles.measureChip, filtroEmbalagem === embalagem && styles.measureChipActive]} onPress={() => setFiltroEmbalagem(embalagem)}><Text style={[styles.measureChipText, filtroEmbalagem === embalagem && styles.measureChipTextActive]}>{ROTULOS_TIPO_EMBALAGEM[embalagem]}</Text></TouchableOpacity>
-          ))}
-        </View>
-
-        <TouchableOpacity style={styles.btnDialogAction} onPress={fecharFiltrosAvancados}>
-          <Text style={styles.btnDialogActionText}>Aplicar</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.btnDialogDanger} onPress={() => {
-          setFiltroColaborador('');
-          setFiltroStatusConferencia('todos');
-          setFiltroUnidadeMedida('todos');
-          setFiltroEmbalagem('todos');
-        }}>
-          <Text style={styles.btnDialogDangerText}>Limpar Filtros</Text>
-        </TouchableOpacity>
       </Animated.View>
     </View>
   </Modal>
@@ -3298,10 +3318,10 @@ return (
         <View style={styles.onboardingHero}>
           <Text style={[styles.onboardingEmoji, isCompact && styles.onboardingEmojiCompact]}>{ONBOARDING_STEPS[onboardingStep].emoji}</Text>
           <Text style={[styles.onboardingTitle, isCompact && styles.onboardingTitleCompact]}>
-            {ONBOARDING_STEPS[onboardingStep].titulo}
+            {t(ONBOARDING_STEPS[onboardingStep].tituloKey)}
           </Text>
           <Text style={[styles.onboardingDescription, isCompact && styles.onboardingDescriptionCompact]}>
-            {ONBOARDING_STEPS[onboardingStep].descricao}
+            {t(ONBOARDING_STEPS[onboardingStep].descricaoKey)}
           </Text>
         </View>
 
@@ -3331,7 +3351,7 @@ return (
               }
             }}>
             <Text style={styles.onboardingActionPrimaryText}>
-              {onboardingStep < ONBOARDING_STEPS.length - 1 ? 'Próximo' : 'Começar'}
+              {onboardingStep < ONBOARDING_STEPS.length - 1 ? t('index.onboarding.next') : t('index.onboarding.start')}
             </Text>
           </TouchableOpacity>
 
@@ -3339,7 +3359,7 @@ return (
             <TouchableOpacity
               style={styles.onboardingActionSecondary}
               onPress={() => setOnboardingStep((s) => s - 1)}>
-              <Text style={styles.onboardingActionSecondaryText}>Anterior</Text>
+              <Text style={styles.onboardingActionSecondaryText}>{t('index.onboarding.previous')}</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -3348,7 +3368,7 @@ return (
                 await AsyncStorage.setItem(CHAVE_ONBOARDING_CONCLUIDO, 'ok');
                 setShowOnboarding(false);
               }}>
-              <Text style={styles.onboardingActionSecondaryText}>Pular</Text>
+              <Text style={styles.onboardingActionSecondaryText}>{t('index.onboarding.skip')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -3591,6 +3611,9 @@ historyDateRangeField: { width: '100%' },
 historyDateFieldLabel: { color: '#64748B', fontSize: 13, fontWeight: '800', marginBottom: 8 },
 historyDateClearBtn: { alignSelf: 'flex-start', marginTop: 10, backgroundColor: '#F8FAFC', borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 8 },
 historyDateClearText: { color: '#475569', fontSize: 13, fontWeight: '800' },
+languageSwitcherSection: {
+  marginBottom: 12,
+},
 row: { flexDirection: 'row', alignItems: 'center' },
 rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 autoSearchHint: { color: '#4338CA', fontSize: 14, marginTop: 10, fontWeight: '700', lineHeight: 20 },
@@ -3606,6 +3629,7 @@ buscando: { color: '#565DF0', fontSize: 14, marginTop: 6, fontWeight: 'bold' },
 
 overlayModal: { flex: 1, backgroundColor: 'rgba(26, 28, 90, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
 dialogBox: { backgroundColor: '#fff', width: '100%', maxWidth: 760, borderRadius: 24, padding: 24, maxHeight: '90%' },
+dialogScrollContent: { paddingBottom: 8 },
 datePickerDialog: { backgroundColor: '#fff', width: '100%', maxWidth: 560, borderRadius: 24, padding: 24 },
 dialogHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
 dialogTitle: { fontSize: 20, fontWeight: '900', color: '#1A1C5A', textTransform: 'uppercase' },

@@ -1,87 +1,94 @@
 import { ThemedView } from '@/components/themed-view';
 import { Fonts } from '@/constants/theme';
+import { LanguageSwitcher } from '@/src/components/language-switcher';
+import { useAppTranslation } from '@/src/hooks/use-app-translation';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-const GUIA = [
-  {
-    emoji: '\u2795',
-    titulo: 'Cadastrar Produtos',
-    passos: [
-      'Toque no bot\u00e3o azul (+) no canto inferior direito',
-      'Escaneie o c\u00f3digo EAN ou digite manualmente',
-      'O nome \u00e9 buscado automaticamente na base ANVISA',
-      'Preencha validade, quantidade e medida',
-      'Toque em \"Gravar no SQLite\"',
-    ],
-  },
-  {
-    emoji: '\ud83d\udc46',
-    titulo: 'Editar / Excluir',
-    passos: [
-      'Na lista, deslize o card do produto para a esquerda',
-      'Bot\u00e3o azul = Editar | Bot\u00e3o vermelho = Excluir',
-      'S\u00f3 um slide pode estar aberto por vez (fecha o anterior)',
-    ],
-  },
-  {
-    emoji: '\ud83d\udd0d',
-    titulo: 'Filtrar a Lista',
-    passos: [
-      'Use os chips r\u00e1pidos: Todos, No Prazo, Pr\u00f3ximos, Vencidos',
-      'Toque em \"Filtros Avan\u00e7ados\" para filtrar por setor, colaborador ou status',
-      'Quando h\u00e1 filtro ativo aparece o bot\u00e3o \u201cLimpar filtros\u201d em vermelho',
-    ],
-  },
-  {
-    emoji: '\u2630',
-    titulo: 'Menu Lateral',
-    passos: [
-      'Toque no \u00edcone de loja (canto superior esquerdo)',
-      'Resumo do Turno: vis\u00e3o geral de vencimentos pendentes',
-      'Confer\u00eancia R\u00e1pida: scan simplificado com checklist',
-      'Gr\u00e1fico de Status: distribui\u00e7\u00e3o visual dos vencimentos',
-      'Exportar PDF: relat\u00f3rio completo com timestamp',
-    ],
-  },
-  {
-    emoji: '\u2699\ufe0f',
-    titulo: 'Configura\u00e7\u00f5es',
-    passos: [
-      'Menu Lateral > Defini\u00e7\u00f5es',
-      'Configure loja, regional e nome do colaborador',
-      'Personalize os setores dispon\u00edveis no cadastro',
-      'Escolha o tema: Sistema, Claro ou Escuro',
-      'Importe produtos via planilha CSV / XLSX',
-    ],
-  },
-];
-
 export default function ComoUsarScreen() {
+  const { t } = useAppTranslation();
+
+  const guide = [
+    {
+      emoji: '\u2795',
+      title: t('explore.guide.register.title'),
+      steps: [
+        t('explore.guide.register.step1'),
+        t('explore.guide.register.step2'),
+        t('explore.guide.register.step3'),
+        t('explore.guide.register.step4'),
+        t('explore.guide.register.step5'),
+      ],
+    },
+    {
+      emoji: '\ud83d\udc46',
+      title: t('explore.guide.edit.title'),
+      steps: [
+        t('explore.guide.edit.step1'),
+        t('explore.guide.edit.step2'),
+        t('explore.guide.edit.step3'),
+      ],
+    },
+    {
+      emoji: '\ud83d\udd0d',
+      title: t('explore.guide.filters.title'),
+      steps: [
+        t('explore.guide.filters.step1'),
+        t('explore.guide.filters.step2'),
+        t('explore.guide.filters.step3'),
+      ],
+    },
+    {
+      emoji: '\u2630',
+      title: t('explore.guide.sidebar.title'),
+      steps: [
+        t('explore.guide.sidebar.step1'),
+        t('explore.guide.sidebar.step2'),
+        t('explore.guide.sidebar.step3'),
+        t('explore.guide.sidebar.step4'),
+        t('explore.guide.sidebar.step5'),
+      ],
+    },
+    {
+      emoji: '\u2699\ufe0f',
+      title: t('explore.guide.settings.title'),
+      steps: [
+        t('explore.guide.settings.step1'),
+        t('explore.guide.settings.step2'),
+        t('explore.guide.settings.step3'),
+        t('explore.guide.settings.step4'),
+      ],
+    },
+  ];
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerBox}>
-          <Text style={styles.headerTitle}>COMO USAR</Text>
-          <Text style={styles.headerSub}>FarmaCheck v1.0.2</Text>
+        <View style={styles.languageCard}>
+          <LanguageSwitcher />
         </View>
 
-        {GUIA.map((item) => (
-          <View key={item.titulo} style={styles.card}>
+        <View style={styles.headerBox}>
+          <Text style={styles.headerTitle}>{t('explore.header_title')}</Text>
+          <Text style={styles.headerSub}>{t('explore.header_subtitle', { version: '1.0.4' })}</Text>
+        </View>
+
+        {guide.map((item) => (
+          <View key={item.title} style={styles.card}>
             <Text style={styles.cardTitle}>
-              {item.emoji}\u2002{item.titulo}
+              {item.emoji}\u2002{item.title}
             </Text>
-            {item.passos.map((passo, i) => (
+            {item.steps.map((step, i) => (
               <View key={i} style={styles.stepRow}>
                 <View style={styles.stepDot} />
-                <Text style={styles.stepText}>{passo}</Text>
+                <Text style={styles.stepText}>{step}</Text>
               </View>
             ))}
           </View>
         ))}
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Desenvolvido para auditoria de validade de produtos farmac\u00eauticos.</Text>
-          <Text style={styles.footerVersion}>v1.0.2 \u2022 2026</Text>
+          <Text style={styles.footerText}>{t('explore.footer.description')}</Text>
+          <Text style={styles.footerVersion}>{t('explore.footer.version', { version: '1.0.4', year: '2026' })}</Text>
         </View>
       </ScrollView>
     </ThemedView>
@@ -91,6 +98,14 @@ export default function ComoUsarScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 20, paddingBottom: 48 },
+  languageCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 16,
+  },
   headerBox: {
     backgroundColor: '#1A1C5A',
     borderRadius: 24,
