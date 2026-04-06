@@ -1,209 +1,114 @@
-# FarmaCheck
+# FarmaCheck 💊
+Aplicativo mobile para controle de validade em farmácia com foco em produtividade operacional, rastreabilidade e análise de dados.
 
-![Status](https://img.shields.io/badge/status-em%20desenvolvimento-2563EB)
-![Plataforma](https://img.shields.io/badge/plataforma-React%20Native%20%7C%20Expo-0F172A)
-![Offline First](https://img.shields.io/badge/arquitetura-offline--first-16A34A)
-![Licenca](https://img.shields.io/badge/licenca-MIT-informational)
+![FarmaCheck Banner](https://raw.githubusercontent.com/Zhennyn/FarmaCheck/master/assets/images/farmacheck.png)
 
-Aplicativo mobile para auditoria de validade e operacoes de inventario em farmacia, com foco em velocidade no dia a dia, rastreabilidade e operacao sem dependencia de internet.
+## ✨ Funcionalidades
 
-## Visao Geral
+- 📷 Leitura de código de barras com câmera para agilizar o inventário
+- 🗂️ Cadastro e gestão de itens com lote, validade, quantidade e responsável
+- ⚠️ Classificação de risco por vencimento (crítico, atenção e ok)
+- 📊 Relatórios exportáveis em XLSX para apoio à tomada de decisão
+- 📥 Importação de base em CSV/XLSX para acelerar implantação
+- 📴 Operação offline-first com persistência local em SQLite
+- 🔔 Notificações locais para lembrar tarefas e rotinas de conferência
+- 🌍 Suporte a internacionalização (i18n), pronto para expansão
 
-O FarmaCheck nasceu de uma necessidade real: substituir controles manuais em papel e planilhas por um fluxo confiavel, rapido e padronizado para equipes de farmacia.
+## 🛠️ Tecnologias Utilizadas
 
-Com ele, a operacao consegue escanear produtos, registrar lotes e validades, identificar riscos e gerar relatorios acionaveis diretamente no celular.
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Expo](https://img.shields.io/badge/Expo-000020?style=for-the-badge&logo=expo&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)
+![Jest](https://img.shields.io/badge/Jest-C21325?style=for-the-badge&logo=jest&logoColor=white)
+![i18next](https://img.shields.io/badge/i18next-26A69A?style=for-the-badge&logo=i18next&logoColor=white)
+![ExcelJS](https://img.shields.io/badge/ExcelJS-217346?style=for-the-badge&logo=microsoft-excel&logoColor=white)
 
-### Por que isso importa
+## 🚀 Como executar localmente
 
-Controle de validade mal executado gera perda financeira, risco sanitario e retrabalho operacional. O FarmaCheck reduz esses gargalos com dados estruturados e rotina orientada por risco.
-
-## Demonstracao Visual
-
-### Galeria de telas
-
-> Salve os arquivos nesta pasta para manter o README organizado:
-> `assets/images/screenshots/`
-
-| Dashboard | Novo registro |
-| --- | --- |
-| ![Dashboard FarmaCheck](assets/images/screenshots/01-dashboard.png) | ![Novo registro FarmaCheck](assets/images/screenshots/02-novo-registro.png) |
-
-| Filtros avancados | Resumo do turno |
-| --- | --- |
-| ![Filtros avancados FarmaCheck](assets/images/screenshots/03-filtros-avancados.png) | ![Resumo do turno FarmaCheck](assets/images/screenshots/04-resumo-turno.png) |
-
-### GIF recomendado
-
-- [INSERIR GIF - fluxo completo de cadastro ate aplicacao de filtros e visualizacao de resumo]
-
-## Problema Que o Projeto Resolve
-
-Em muitas farmacias, a conferencia de validade ainda depende de controles manuais, com baixa rastreabilidade e risco de erro humano.
-
-O FarmaCheck resolve isso com:
-
-- operacao offline-first para uso no piso da loja
-- padronizacao do cadastro e da auditoria
-- classificacao automatica de risco por vencimento
-- historico auditavel de alteracoes
-- exportacao estruturada para acompanhamento gerencial
-
-### Por que isso importa
-
-A farmacia ganha previsibilidade na operacao, resposta mais rapida para itens criticos e base de dados confiavel para tomada de decisao.
-
-## Funcionalidades Principais
-
-- Escaneamento de codigo EAN com camera
-- Cache local e operacao offline-first (SQLite + AsyncStorage)
-- CRUD de inventario com metadados de colaborador
-- Analise de vencimento com classificacao de risco (critico, atencao, ok)
-- Filtros avancados por status, colaborador, validade e embalagem
-- Exportacao XLSX com multiplas abas de relatorio
-- Importacao CSV/XLSX para carga inicial
-- Lembretes e notificacoes locais
-- Trilha historica de auditoria
-
-## Stack Tecnica
-
-### Core
-
-- ![React Native](https://img.shields.io/badge/React%20Native-20232A?logo=react&logoColor=61DAFB) React Native
-- ![Expo](https://img.shields.io/badge/Expo-000020?logo=expo&logoColor=white) Expo Router
-- ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) TypeScript
-
-### Persistencia e Dados
-
-- ![SQLite](https://img.shields.io/badge/SQLite-07405E?logo=sqlite&logoColor=white) expo-sqlite
-- ![AsyncStorage](https://img.shields.io/badge/AsyncStorage-local%20storage-334155) AsyncStorage
-- ![ExcelJS](https://img.shields.io/badge/ExcelJS-relatorios%20XLSX-15803D) ExcelJS
-
-### Qualidade
-
-- ![Jest](https://img.shields.io/badge/Jest-C21325?logo=jest&logoColor=white) Jest
-- ![RNTL](https://img.shields.io/badge/React%20Native%20Testing%20Library-testes%20UI-7C3AED) React Native Testing Library
-
-## Arquitetura e Estrutura de Pastas
-
-Arquitetura orientada a features, separando responsabilidades de UI, dominio e infraestrutura.
-
-```text
-src/
-  features/
-    inventory/     # utils, repository, constants
-    scanner/
-    reports/
-  components/      # componentes reutilizaveis
-  services/        # open-food-facts.service, etc
-  hooks/           # useDebouncedValue, etc
-  database/        # sqlite-client, schema
-  utils/           # funcoes auxiliares
-  types/           # tipos compartilhados
-```
-
-### Por que isso importa
-
-Essa organizacao facilita manutencao, reduz acoplamento e acelera evolucao do produto sem comprometer estabilidade.
-
-## Pre-requisitos
+### Pré-requisitos
 
 - Node.js 18+
 - npm 9+
-- Expo CLI via npx
-- Ambiente Android Studio e/ou Xcode (para emuladores/simuladores)
+- Expo CLI (via npx)
+- Android Studio (Android) e/ou Xcode (iOS)
 
-## Instalacao
+### Passo a passo
 
-1. Clone o repositorio.
-2. Entre na pasta do projeto.
-3. Instale as dependencias.
+1. Clone o repositório:
+
+```bash
+git clone https://github.com/Zhennyn/FarmaCheck.git
+```
+
+2. Acesse a pasta do projeto:
+
+```bash
+cd FarmaCheck
+```
+
+3. Instale as dependências:
 
 ```bash
 npm install
 ```
 
-## Como Executar
-
-### Ambiente de desenvolvimento
+4. Inicie o ambiente de desenvolvimento:
 
 ```bash
 npm run start
 ```
 
-### Android
+5. Execute na plataforma desejada:
 
 ```bash
 npm run android
 ```
 
-### iOS
-
 ```bash
 npm run ios
 ```
-
-### Web
 
 ```bash
 npm run web
 ```
 
-### Qualidade de codigo
+6. (Opcional) Rode qualidade e testes:
 
 ```bash
 npm run lint
-```
-
-## Estrategia de Testes
-
-Cobertura atual focada em confiabilidade de regras de negocio:
-
-- funcoes de calculo de inventario
-- regras de validacao
-- comportamento de repositorio com adaptadores SQLite mockados
-
-Comandos principais:
-
-```bash
 npm run test
 ```
 
-Proximos passos recomendados:
+## 📸 Screenshots
 
-- casos de borda para parser de importacao/exportacao
-- fluxos criticos de interface com React Native Testing Library
-- testes de integracao para inicializacao de schema SQLite
+![Tela FarmaCheck](https://raw.githubusercontent.com/Zhennyn/FarmaCheck/master/assets/images/farmacheck.png)
 
-### Por que isso importa
+## 🌐 Demonstração
 
-Em operacao de farmacia, erro de regra pode gerar impacto direto em descarte e compliance. Testes reduzindo regressao nao sao opcionais.
+Em breve: link da demonstração pública (Expo Web ou vídeo rápido no LinkedIn/GitHub).
 
-## Melhorias Futuras Planejadas
+Sugestão de placeholder:
 
-- modularizar trechos remanescentes da tela principal em telas por feature
-- adicionar testes E2E com Detox
-- adicionar pipeline de CI (lint, teste e type-check)
-- ampliar observabilidade de erros e eventos operacionais
-- avaliar sincronizacao em nuvem mantendo modo offline-first
+- 🔗 https://github.com/Zhennyn/FarmaCheck
 
-## Como Contribuir
+## 📌 Sobre o projeto
 
-Contribuicoes sao bem-vindas.
+O FarmaCheck foi desenvolvido para resolver um problema real de operação: reduzir falhas no controle de validade e tornar o inventário mais rápido, confiável e auditável.
 
-1. Crie uma branch a partir da `master`.
-2. Implemente a melhoria/correcao com testes.
-3. Garanta que lint e testes passam localmente.
-4. Abra um Pull Request com contexto, impacto e evidencias (prints/logs).
+Mesmo sendo um projeto acadêmico/prático, ele demonstra competências valorizadas em vagas de Suporte TI, Help Desk, Dados e Cloud:
 
-Checklist sugerido para PR:
+- Automação de rotinas operacionais (coleta, validação e exportação de dados)
+- Estruturação de dados para relatórios e dashboards
+- Modelagem e persistência em banco local (SQLite)
+- Qualidade de software com testes e lint
+- Visão full-stack de produto (UX mobile, regras de negócio e armazenamento)
+- Base sólida para evolução cloud (integrações com Azure, BI e APIs)
 
-- [ ] escopo claro e objetivo
-- [ ] sem regressao funcional
-- [ ] testes adicionados/atualizados
-- [ ] documentacao atualizada (quando aplicavel)
+Projeto atualizado em 2026 com foco em portfólio técnico, impacto prático e evolução contínua.
 
-## Licenca
+Feito com ❤️ por Zhennyn.
 
-Este projeto esta licenciado sob a licenca MIT.
-
-Se sua operacao exigir distribuicao publica ou uso comercial, valide requisitos juridicos internos antes de publicar builds.
+Contribuições são bem-vindas: abra uma issue, sugira melhorias ou envie um pull request.
