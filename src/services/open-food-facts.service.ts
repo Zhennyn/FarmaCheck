@@ -1,4 +1,4 @@
-import { inferMeasureFromPresentation, inferPackageType } from '../features/inventory';
+import { inferMeasureFromPresentation, inferPackageType } from '../modules/inventory';
 import type { CadastroEan } from '../types/inventory';
 
 type OpenFoodFactsResponse = {

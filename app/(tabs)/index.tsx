@@ -21,36 +21,42 @@ import { LanguageSwitcher } from '../../src/components/language-switcher';
 import { createBaseSchema } from '../../src/database/schema';
 import { closeAppDatabase, openAppDatabase } from '../../src/database/sqlite-client';
 import {
-  formatDatePtBr,
-  formatMeasuredTotal,
-  getDaysUntilExpiry,
-  getDiscountStatus,
-  inferMeasureFromPresentation,
-  inferPackageType,
-  nearestExpiry,
-  normalizeIsoDate,
-  OPCOES_UNIDADE_MEDIDA,
-  parseMeasureNumber,
-  parseStringList,
-  ROTULOS_STATUS_CONFERENCIA,
-  ROTULOS_TIPO_EMBALAGEM,
-  ROTULOS_UNIDADE_MEDIDA,
-  summarizeMeasuredTotals,
-  toDate,
-  validateInventoryEntry,
+    analyzeProducts,
+    formatDatePtBr,
+    formatMeasuredTotal,
+    getDaysUntilExpiry,
+    getDiscountStatus,
+    inferMeasureFromPresentation,
+    inferPackageType,
+    listExpiredProducts,
+    listLowStockProducts,
+    listNearExpiryProducts,
+    nearestExpiry,
+    normalizeIsoDate,
+    OPCOES_UNIDADE_MEDIDA,
+    parseMeasureNumber,
+    parseStringList,
+    queryInventory,
+    ROTULOS_STATUS_CONFERENCIA,
+    ROTULOS_TIPO_EMBALAGEM,
+    ROTULOS_UNIDADE_MEDIDA,
+    summarizeMeasuredTotals,
+    toDate,
+    validateInventoryEntry,
+    validateProductForSave,
 } from '../../src/features/inventory';
 import { useAppTranslation } from '../../src/hooks/use-app-translation';
 import { findProductByEan } from '../../src/services';
 import type {
-  CadastroEan,
-  HistoricoRegistro,
-  Produto,
-  ProdutoComAnalise,
-  StatusConferencia,
-  ThemePreference,
-  TipoEmbalagem,
-  TipoFiltro,
-  UnidadeMedida
+    CadastroEan,
+    HistoricoRegistro,
+    Produto,
+    ProdutoComAnalise,
+    StatusConferencia,
+    ThemePreference,
+    TipoEmbalagem,
+    TipoFiltro,
+    UnidadeMedida
 } from '../../src/types/inventory';
 import { digitsOnly, normalizeHeader } from '../../src/utils/string';
 
@@ -1330,13 +1336,13 @@ try {
   ].forEach((linha) => worksheetTodos.addRow(linha));
 
   const worksheetVencidos = workbook.addWorksheet('Vencidos');
-  montarLinhasProdutos(produtos.filter((produto) => obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo === 'vencido')).forEach((linha) => worksheetVencidos.addRow(linha));
+  montarLinhasProdutos(listExpiredProducts(produtos)).forEach((linha) => worksheetVencidos.addRow(linha));
 
   const worksheetProximos = workbook.addWorksheet('Proximos');
-  montarLinhasProdutos(produtos.filter((produto) => {
-    const status = obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo;
-    return status === 'retirar' || status === 'markdown';
-  })).forEach((linha) => worksheetProximos.addRow(linha));
+  montarLinhasProdutos(listNearExpiryProducts(produtos, { days: 30 })).forEach((linha) => worksheetProximos.addRow(linha));
+
+  const worksheetEstoqueBaixo = workbook.addWorksheet('Estoque_Baixo');
+  montarLinhasProdutos(listLowStockProducts(produtos, { minStock: 5 })).forEach((linha) => worksheetEstoqueBaixo.addRow(linha));
 
   const worksheetResumo = workbook.addWorksheet('Resumo_Colaborador');
   planilhaResumoColaborador.forEach((linha) => worksheetResumo.addRow(linha));
@@ -1720,18 +1726,26 @@ return Alert.alert('Atenção', 'Preencha todos os campos obrigatórios!');
 const persistir = async () => {
   try {
     const db = await abrirBanco();
-    const qtdNum = parseInt(novaQtd, 10) || 1;
+    const qtdNum = parseInt(novaQtd, 10);
     const quantidadeMedidaNum = parseNumeroMedida(novaQuantidadeMedida);
     const embalagemFinal = novaEmbalagem || inferirTipoEmbalagem(novaApresentacao) || '';
     const loteFinal = novoLote.trim();
     const observacaoFinal = novaObservacao.trim();
-    const validadeNormalizada = normalizarDataISO(novaValidade);
-    const validadesJson = novasValidadesAdicionais.length > 0 ? JSON.stringify(novasValidadesAdicionais) : null;
+    const validacaoSalvar = validateProductForSave({
+      name: novoNome,
+      code: novoCodigo,
+      expiryDate: novaValidade,
+      quantity: qtdNum,
+      mode: editandoId ? 'update' : 'create',
+    });
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(validadeNormalizada)) {
-      Alert.alert('Erro', 'A validade precisa estar no formato AAAA-MM-DD ou DD/MM/AAAA.');
+    if (!validacaoSalvar.success) {
+      Alert.alert('Erro de validacao', validacaoSalvar.error.details?.join('\n') || validacaoSalvar.error.message);
       return;
     }
+
+    const validadeNormalizada = validacaoSalvar.data.normalizedExpiryDate;
+    const validadesJson = novasValidadesAdicionais.length > 0 ? JSON.stringify(novasValidadesAdicionais) : null;
 
     await db.withTransactionAsync(async () => {
       if (editandoId) {
@@ -1932,19 +1946,7 @@ const termoBuscaAdiado = useDeferredValue(termoBusca);
 const filtroImportPreviewAdiado = useDeferredValue(filtroImportPreview);
 
 const produtosComAnalise = useMemo<ProdutoComAnalise[]>(() => {
-return produtos.map((produto) => {
-  const validadePrioritaria = extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais);
-  const statusValidade = obterStatusDesconto(validadePrioritaria);
-  const diasAteValidade = obterDiasAteValidade(validadePrioritaria);
-  const embalagemCalculada = produto.embalagem || inferirTipoEmbalagem(produto.apresentacao) || null;
-  return {
-    ...produto,
-    statusValidade,
-    diasAteValidade,
-    embalagemCalculada,
-    totalMedidoCalculado: formatarTotalMedido(produto),
-  };
-});
+return analyzeProducts(produtos);
 }, [produtos]);
 
 const resumoKpis = useMemo(() => {
@@ -2047,36 +2049,13 @@ return {
 }, [itensImportacaoPreview]);
 
 const produtosFiltrados = useMemo(() => {
-const termoBuscaNormalizado = termoBuscaAdiado.trim().toLowerCase();
-const filtroColaboradorNormalizado = filtroColaborador.trim().toLowerCase();
-
-return produtosComAnalise.filter((produto) => {
-  const correspondeBusca = !termoBuscaNormalizado
-    || produto.nome.toLowerCase().includes(termoBuscaNormalizado)
-    || produto.codigo.toLowerCase().includes(termoBuscaNormalizado);
-  if (!correspondeBusca) return false;
-
-  if (filtroValidade === 'vencidos') return produto.statusValidade.tipo === 'vencido';
-  if (filtroValidade === 'proximos') return produto.statusValidade.tipo === 'retirar' || produto.statusValidade.tipo === 'markdown';
-  if (filtroValidade === 'no_prazo') return produto.statusValidade.tipo === 'ok';
-
-  if (filtroColaboradorNormalizado && !(produto.colaborador || '').toLowerCase().includes(filtroColaboradorNormalizado)) return false;
-  if (filtroStatusConferencia !== 'todos' && (produto.status_conferencia || 'pendente') !== filtroStatusConferencia) return false;
-  if (filtroUnidadeMedida !== 'todos' && (produto.unidade_medida || 'unidades') !== filtroUnidadeMedida) return false;
-  if (filtroEmbalagem !== 'todos' && (produto.embalagemCalculada || '') !== filtroEmbalagem) return false;
-
-  return true;
-}).sort((a, b) => {
-  const prioridade = (produto: ProdutoComAnalise) => {
-    if (produto.statusValidade.tipo === 'vencido') return 0;
-    if (produto.statusValidade.tipo === 'retirar') return 1;
-    if (produto.statusValidade.tipo === 'markdown') return 2;
-    return 3;
-  };
-
-  const prioridadeDiff = prioridade(a) - prioridade(b);
-  if (prioridadeDiff !== 0) return prioridadeDiff;
-  return a.diasAteValidade - b.diasAteValidade;
+return queryInventory(produtosComAnalise, {
+  searchTerm: termoBuscaAdiado,
+  expiryFilter: filtroValidade,
+  collaborator: filtroColaborador,
+  statusFilter: filtroStatusConferencia,
+  unitFilter: filtroUnidadeMedida,
+  packageFilter: filtroEmbalagem,
 });
 }, [filtroColaborador, filtroEmbalagem, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
 
