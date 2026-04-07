@@ -1286,7 +1286,16 @@ return arquivo;
 // EXPORTAÇÃO E IMPORTAÇÃO NATIVA (EXCEL)
 // ==========================================
 const exportarParaExcel = useCallback(async () => {
-if (produtos.length === 0) return Alert.alert("Aviso", "Não há produtos para exportar.");
+const produtosVisiveis = queryInventory(produtos, {
+  searchTerm: termoBusca,
+  expiryFilter: filtroValidade,
+  collaborator: filtroColaborador,
+  statusFilter: filtroStatusConferencia,
+  unitFilter: filtroUnidadeMedida,
+  packageFilter: filtroEmbalagem,
+}, ordenacaoLista) as Produto[];
+
+if (produtosVisiveis.length === 0) return Alert.alert("Aviso", "Não há produtos visíveis para exportar com os filtros atuais.");
 if (exportandoPlanilha) return;
 
 const dataExportacao = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1320,7 +1329,7 @@ const montarLinhasProdutos = (lista: Produto[]) => [
 
 const resumoExportacaoMap = new Map<string, { colaborador: string; qtd: number; risco: number; markdown: number }>();
 
-for (const produto of produtos) {
+for (const produto of produtosVisiveis) {
   const chaveColaborador = produto.colaborador || 'Sem nome';
   const acumulado = resumoExportacaoMap.get(chaveColaborador) || { colaborador: chaveColaborador, qtd: 0, risco: 0, markdown: 0 };
   const status = obterStatusDesconto(extrairValidadeMaisProxima(produto.validade, produto.validades_adicionais)).tipo;
@@ -1346,18 +1355,19 @@ try {
   const worksheetTodos = workbook.addWorksheet('Produtos');
   [
     ['Loja', loja, 'Codigo Loja', codigoLoja || '-', 'Regional', regional, 'Data', dataExportacao],
+    ['Ordenacao', ordenacaoLista, 'Filtro_Validade', filtroValidade, 'Busca', termoBusca.trim() || 'sem busca', 'Itens_Visiveis', String(produtosVisiveis.length)],
     [],
-    ...montarLinhasProdutos(produtos),
+    ...montarLinhasProdutos(produtosVisiveis),
   ].forEach((linha) => worksheetTodos.addRow(linha));
 
   const worksheetVencidos = workbook.addWorksheet('Vencidos');
-  montarLinhasProdutos(listExpiredProducts(produtos)).forEach((linha) => worksheetVencidos.addRow(linha));
+  montarLinhasProdutos(listExpiredProducts(produtosVisiveis)).forEach((linha) => worksheetVencidos.addRow(linha));
 
   const worksheetProximos = workbook.addWorksheet('Proximos');
-  montarLinhasProdutos(listNearExpiryProducts(produtos, { days: 30 })).forEach((linha) => worksheetProximos.addRow(linha));
+  montarLinhasProdutos(listNearExpiryProducts(produtosVisiveis, { days: 30 })).forEach((linha) => worksheetProximos.addRow(linha));
 
   const worksheetEstoqueBaixo = workbook.addWorksheet('Estoque_Baixo');
-  montarLinhasProdutos(listLowStockProducts(produtos, { minStock: 5 })).forEach((linha) => worksheetEstoqueBaixo.addRow(linha));
+  montarLinhasProdutos(listLowStockProducts(produtosVisiveis, { minStock: 5 })).forEach((linha) => worksheetEstoqueBaixo.addRow(linha));
 
   const worksheetResumo = workbook.addWorksheet('Resumo_Colaborador');
   planilhaResumoColaborador.forEach((linha) => worksheetResumo.addRow(linha));
@@ -1374,7 +1384,7 @@ try {
     });
   }
 
-  exibirNotificacao(`Arquivo XLSX criado! (${produtos.length} produtos)`);
+  exibirNotificacao(`Arquivo XLSX criado! (${produtosVisiveis.length} produtos)`);
 } catch (error) {
   const mensagem = error instanceof Error ? error.message : 'Não foi possível exportar o ficheiro.';
   Alert.alert("Erro na exportação", mensagem);
@@ -1383,7 +1393,22 @@ try {
 }
 
 
-}, [codigoLoja, exibirNotificacao, exportandoPlanilha, historico, loja, produtos, regional]);
+}, [
+  codigoLoja,
+  exibirNotificacao,
+  exportandoPlanilha,
+  filtroColaborador,
+  filtroEmbalagem,
+  filtroStatusConferencia,
+  filtroUnidadeMedida,
+  filtroValidade,
+  historico,
+  loja,
+  ordenacaoLista,
+  produtos,
+  regional,
+  termoBusca,
+]);
 
 const baixarModeloPlanilha = useCallback(async () => {
 try {
