@@ -95,7 +95,7 @@ npm run test:import-base
 
 - 🎥 Vídeo de demonstração: 
 ```md
-[▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/video/FarmaCheck.gif)
+[▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/video/Demon.mp4)
 ```
 - 🔗 Placeholder: https://github.com/Zhennyn/FarmaCheck
 
