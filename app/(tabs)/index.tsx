@@ -928,10 +928,10 @@ setShowHistoricoDatePicker(false);
 }, [animarSaidaDialogo]);
 
 const abrirConfiguracoes = useCallback(() => {
-setTempLoja(loja);
-setTempCodigoLoja(extrairSomenteNumeros(codigoLoja));
-setTempRegional(regional);
-setTempColaborador(colaborador);
+setTempLoja('');
+setTempCodigoLoja('');
+setTempRegional('');
+setTempColaborador('');
 setTempAutoExcluirVencidos(autoExcluirVencidos);
 setTempThemePreference(themePreference);
 setTempModoAcessibilidade(modoAcessibilidade);
@@ -945,15 +945,19 @@ try {
 const lojaNormalizada = tempLoja.trim().toUpperCase();
 const codigoLojaNormalizado = extrairSomenteNumeros(tempCodigoLoja);
 const regionalNormalizada = tempRegional.trim().toUpperCase();
+const lojaSalva = lojaNormalizada || loja;
+const codigoLojaSalvo = codigoLojaNormalizado || codigoLoja;
+const regionalSalva = regionalNormalizada || regional;
+const colaboradorSalvo = tempColaborador.trim() ? tempColaborador : colaborador;
 const mudouFrequenciaLembrete = tempFrequenciaLembreteHoras !== frequenciaLembreteHoras;
 const mudouFrequenciaResumo = tempFrequenciaResumoRiscoHoras !== frequenciaResumoRiscoHoras;
-const mudouContextoLoja = lojaNormalizada !== loja || codigoLojaNormalizado !== codigoLoja || regionalNormalizada !== regional;
+const mudouContextoLoja = lojaSalva !== loja || codigoLojaSalvo !== codigoLoja || regionalSalva !== regional;
 
 await AsyncStorage.multiSet([
-  [CHAVE_LOJA, lojaNormalizada],
-  [CHAVE_CODIGO_LOJA, codigoLojaNormalizado],
-  [CHAVE_REGIONAL, regionalNormalizada],
-  [CHAVE_COLABORADOR, tempColaborador],
+  [CHAVE_LOJA, lojaSalva],
+  [CHAVE_CODIGO_LOJA, codigoLojaSalvo],
+  [CHAVE_REGIONAL, regionalSalva],
+  [CHAVE_COLABORADOR, colaboradorSalvo],
   [CHAVE_FREQUENCIA_LEMBRETE_HORAS, String(tempFrequenciaLembreteHoras)],
   [CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS, String(tempFrequenciaResumoRiscoHoras)],
   [CHAVE_AUTO_EXCLUIR_VENCIDOS, tempAutoExcluirVencidos ? 'true' : 'false'],
@@ -961,10 +965,10 @@ await AsyncStorage.multiSet([
   [CHAVE_MODO_ACESSIBILIDADE, tempModoAcessibilidade ? 'true' : 'false'],
 ]);
 
-setLoja(lojaNormalizada);
-setCodigoLoja(codigoLojaNormalizado);
-setRegional(regionalNormalizada);
-setColaborador(tempColaborador);
+setLoja(lojaSalva);
+setCodigoLoja(codigoLojaSalvo);
+setRegional(regionalSalva);
+setColaborador(colaboradorSalvo);
 setAutoExcluirVencidos(tempAutoExcluirVencidos);
 setFrequenciaLembreteHoras(tempFrequenciaLembreteHoras);
 setFrequenciaResumoRiscoHoras(tempFrequenciaResumoRiscoHoras);
@@ -978,14 +982,14 @@ if (mudouFrequenciaResumo) {
 if (notificacoesHabilitadas && (mudouFrequenciaLembrete || mudouContextoLoja)) {
   const reagendado = await agendarLembreteRecorrente(true);
   if (reagendado) {
-    exibirNotificacao(`Lembretes atualizados para Loja ${codigoLojaNormalizado || lojaNormalizada} a cada ${tempFrequenciaLembreteHoras}h.`);
+    exibirNotificacao(`Lembretes atualizados para Loja ${codigoLojaSalvo || lojaSalva} a cada ${tempFrequenciaLembreteHoras}h.`);
   }
 }
 
 if (notificacoesHabilitadas && mudouContextoLoja) {
   await enviarNotificacaoLocal(
     'Configuracao de loja atualizada',
-    `Novo contexto: Loja ${lojaNormalizada} (${codigoLojaNormalizado || 'SEM CODIGO'}) - Regional ${regionalNormalizada}.`
+    `Novo contexto: Loja ${lojaSalva} (${codigoLojaSalvo || 'SEM CODIGO'}) - Regional ${regionalSalva}.`
   );
 }
 
@@ -2748,23 +2752,23 @@ return (
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <Text style={[styles.label, { color: theme.muted }]}>NOME DO COLABORADOR</Text>
-        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempColaborador} onChangeText={setTempColaborador} placeholderTextColor={theme.muted} />
+        <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempColaborador} onChangeText={setTempColaborador} placeholder="{Colaborador}" placeholderTextColor={theme.muted} />
 
           <View style={[styles.row, isCompact && { flexDirection: 'column' }]}>
             <View style={{ flex: 1, marginRight: isCompact ? 0 : 10 }}>
             <Text style={[styles.label, { color: theme.muted }]}>LOJA ATUAL</Text>
-            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" placeholderTextColor={theme.muted} />
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempLoja} onChangeText={setTempLoja} autoCapitalize="characters" placeholder="{Loja}" placeholderTextColor={theme.muted} />
           </View>
             <View style={{ flex: 1 }}>
             <Text style={[styles.label, { color: theme.muted }]}>CÓDIGO DA LOJA</Text>
-            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempCodigoLoja} onChangeText={(valor) => setTempCodigoLoja(extrairSomenteNumeros(valor))} keyboardType="number-pad" placeholder="Ex: 102" placeholderTextColor={theme.muted} />
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempCodigoLoja} onChangeText={(valor) => setTempCodigoLoja(extrairSomenteNumeros(valor))} keyboardType="number-pad" placeholder="{Código}" placeholderTextColor={theme.muted} />
           </View>
         </View>
 
           <View style={[styles.row, isCompact && { flexDirection: 'column' }]}>
             <View style={{ flex: 1 }}>
             <Text style={[styles.label, { color: theme.muted }]}>REGIONAL</Text>
-            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" placeholderTextColor={theme.muted} />
+            <TextInput style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]} value={tempRegional} onChangeText={setTempRegional} autoCapitalize="characters" placeholder="{Regional}" placeholderTextColor={theme.muted} />
           </View>
         </View>
 
