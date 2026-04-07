@@ -10,7 +10,7 @@ import * as Notifications from 'expo-notifications';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as SQLite from 'expo-sqlite';
-import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
+import { Activity, AlertTriangle, Barcode, Bell, Camera, Check, ChevronDown, ChevronUp, Download, Edit, Edit2, Package, Plus, Search, Trash2, TrendingUp, Upload, User, Warehouse, X } from 'lucide-react-native';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
@@ -82,6 +82,7 @@ const CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS = '@frequencia_alerta_risco_horas';
 const CHAVE_AUTO_EXCLUIR_VENCIDOS = '@auto_excluir_vencidos';
 const CHAVE_MODO_TEMA = '@modo_tema';
 const CHAVE_MODO_ACESSIBILIDADE = '@modo_acessibilidade';
+const CHAVE_FILTROS_RECOLHIDOS = '@filtros_recolhidos';
 const CHAVE_LOJA = '@loja';
 const CHAVE_CODIGO_LOJA = '@codigo_loja';
 const CHAVE_REGIONAL = '@regional';
@@ -99,6 +100,7 @@ const CHAVES_CONFIGURACAO_INICIAL = [
   CHAVE_AUTO_EXCLUIR_VENCIDOS,
   CHAVE_MODO_TEMA,
   CHAVE_MODO_ACESSIBILIDADE,
+  CHAVE_FILTROS_RECOLHIDOS,
   CHAVE_PRIMEIRA_INSTALACAO,
   CHAVE_ONBOARDING_CONCLUIDO,
 ] as const;
@@ -246,6 +248,7 @@ const [versaoBaseInternaAtual, setVersaoBaseInternaAtual] = useState('');
 const [termoBusca, setTermoBusca] = useState('');
 const [filtroValidade, setFiltroValidade] = useState<TipoFiltro>('todos');
 const [ordenacaoLista, setOrdenacaoLista] = useState<'risk-first' | 'name-asc' | 'name-desc'>('risk-first');
+const [filtrosRecolhidos, setFiltrosRecolhidos] = useState(isCompact);
 const [filtroColaborador, setFiltroColaborador] = useState('');
 const [filtroStatusConferencia, setFiltroStatusConferencia] = useState<StatusConferencia | 'todos'>('todos');
 const [filtroUnidadeMedida, setFiltroUnidadeMedida] = useState<UnidadeMedida | 'todos'>('todos');
@@ -280,6 +283,8 @@ const opacidadePainelModal = useRef(new Animated.Value(0)).current;
 const deslocamentoDialogo = useRef(new Animated.Value(12)).current;
 const escalaDialogo = useRef(new Animated.Value(0.96)).current;
 const opacidadeDialogo = useRef(new Animated.Value(0)).current;
+const animacaoFiltros = useRef(new Animated.Value(isCompact ? 0 : 1)).current;
+const filtrosPersistidosInicializadosRef = useRef(false);
 const fechandoBottomSheetRef = useRef(false);
 const fechandoSidebarRef = useRef(false);
 const fechandoDialogoRef = useRef(false);
@@ -760,6 +765,7 @@ const autoExcluir = configuracoes[CHAVE_AUTO_EXCLUIR_VENCIDOS];
 const modoTema = configuracoes[CHAVE_MODO_TEMA];
 const freqLembrete = normalizarOpcaoHoras(configuracoes[CHAVE_FREQUENCIA_LEMBRETE_HORAS], OPCOES_FREQUENCIA_LEMBRETE_HORAS, FREQUENCIA_LEMBRETE_PADRAO_HORAS);
 const freqResumoRisco = normalizarOpcaoHoras(configuracoes[CHAVE_FREQUENCIA_ALERTA_RISCO_HORAS], OPCOES_FREQUENCIA_ALERTA_RISCO_HORAS, FREQUENCIA_ALERTA_RISCO_PADRAO_HORAS);
+const filtrosRecolhidosPersistido = configuracoes[CHAVE_FILTROS_RECOLHIDOS];
 if (l) setLoja(l);
 if (cl) setCodigoLoja(extrairSomenteNumeros(cl));
 if (r) setRegional(r);
@@ -776,6 +782,10 @@ if (modoTema === 'system' || modoTema === 'light' || modoTema === 'dark') {
 const modoA11y = configuracoes[CHAVE_MODO_ACESSIBILIDADE];
 setModoAcessibilidade(modoA11y === 'true');
 setTempModoAcessibilidade(modoA11y === 'true');
+if (filtrosRecolhidosPersistido === 'true' || filtrosRecolhidosPersistido === 'false') {
+  setFiltrosRecolhidos(filtrosRecolhidosPersistido === 'true');
+}
+filtrosPersistidosInicializadosRef.current = true;
 
   // 2. Inicializar Banco de Dados (SQLite)
   const db = await abrirBanco();
@@ -1170,6 +1180,10 @@ setAlvoDatePickerHistorico(alvo);
 setDataHistoricoSelecionada(converterDataParaDate(alvo === 'inicio' ? filtroHistoricoDataInicio : filtroHistoricoDataFim));
 setShowHistoricoDatePicker(true);
 };
+
+const alternarBoxFiltros = useCallback(() => {
+  setFiltrosRecolhidos((atual) => !atual);
+}, []);
 
 const confirmarDatePickerHistorico = async (novaData: Date) => {
 const year = novaData.getFullYear();
@@ -1996,6 +2010,22 @@ const tiposHistoricoDisponiveis = useMemo(
   [historico]
 );
 
+useEffect(() => {
+  Animated.timing(animacaoFiltros, {
+    toValue: filtrosRecolhidos ? 0 : 1,
+    duration: 220,
+    easing: Easing.out(Easing.cubic),
+    useNativeDriver: false,
+  }).start();
+}, [animacaoFiltros, filtrosRecolhidos]);
+
+useEffect(() => {
+  if (!filtrosPersistidosInicializadosRef.current) return;
+  AsyncStorage.setItem(CHAVE_FILTROS_RECOLHIDOS, filtrosRecolhidos ? 'true' : 'false').catch(() => {
+    // Keep UI responsive even if persistence fails.
+  });
+}, [filtrosRecolhidos]);
+
 const historicoFiltrado = useMemo(() => historico.filter((item) => {
 const dataEvento = new Date(item.data_evento);
 dataEvento.setHours(0, 0, 0, 0);
@@ -2304,49 +2334,68 @@ const renderListaHeader = (
            <Text style={[styles.btnOutlineText, { color: '#4338CA' }]}>Filtros Avançados {filtrosAvancadosAtivos ? `(${filtrosAvancadosAtivos})` : ''}</Text>
          </TouchableOpacity>
       </View>
-      <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Search size={18} />
-        <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar por nome ou EAN..." placeholderTextColor={theme.muted} value={termoBusca} onChangeText={setTermoBusca} />
+      <View style={[styles.filtersBox, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+        <TouchableOpacity style={styles.filtersBoxHeader} onPress={alternarBoxFiltros}>
+          <Text style={[styles.filtersBoxTitle, { color: theme.title }]}>Busca e filtros</Text>
+          {filtrosRecolhidos ? <ChevronDown size={18} color={theme.muted} /> : <ChevronUp size={18} color={theme.muted} />}
+        </TouchableOpacity>
+        <Animated.View
+          pointerEvents={filtrosRecolhidos ? 'none' : 'auto'}
+          style={[
+            styles.filtersBoxBody,
+            {
+              maxHeight: animacaoFiltros.interpolate({ inputRange: [0, 1], outputRange: [0, 280] }),
+              opacity: animacaoFiltros,
+              transform: [{ translateY: animacaoFiltros.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) }],
+            },
+          ]}>
+            <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Search size={18} />
+              <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar por nome ou EAN..." placeholderTextColor={theme.muted} value={termoBusca} onChangeText={setTermoBusca} />
+            </View>
+            <View style={styles.filterRow}>
+              <TouchableOpacity style={[styles.filterChip, styles.filterChipMain, { backgroundColor: theme.chipBg }, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
+                <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterChip, styles.filterChipMain, { backgroundColor: theme.chipBg }, filtroValidade === 'no_prazo' && styles.filterChipActive]} onPress={() => setFiltroValidade('no_prazo')}>
+                <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'no_prazo' && styles.filterChipTextActive]}>No Prazo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterChip, styles.filterChipMain, { backgroundColor: theme.chipBg }, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
+                <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterChip, styles.filterChipMain, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
+                <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.sortRow}>
+              <TouchableOpacity
+                style={[styles.filterChip, styles.sortChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-asc' && styles.filterChipActive]}
+                onPress={() => setOrdenacaoLista((current) => (current === 'name-asc' ? 'risk-first' : 'name-asc'))}>
+                <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-asc' && styles.filterChipTextActive]}>Ordenar A-Z</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.filterChip, styles.sortChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-desc' && styles.filterChipActive]}
+                onPress={() => setOrdenacaoLista((current) => (current === 'name-desc' ? 'risk-first' : 'name-desc'))}>
+                <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-desc' && styles.filterChipTextActive]}>Ordenar Z-A</Text>
+              </TouchableOpacity>
+            </View>
+            {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0 || ordenacaoLista !== 'risk-first') && (
+              <TouchableOpacity
+                style={styles.clearFiltersBtn}
+                onPress={() => {
+                  setFiltroValidade('todos');
+                  setOrdenacaoLista('risk-first');
+                  setFiltroColaborador('');
+                  setFiltroStatusConferencia('todos');
+                  setFiltroUnidadeMedida('todos');
+                  setFiltroEmbalagem('todos');
+                }}>
+                <X size={13} />
+                <Text style={styles.clearFiltersBtnText}>Limpar filtros</Text>
+              </TouchableOpacity>
+            )}
+        </Animated.View>
       </View>
-      <View style={styles.filterRow}>
-        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'todos' && styles.filterChipActive]} onPress={() => setFiltroValidade('todos')}>
-          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'todos' && styles.filterChipTextActive]}>Todos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'no_prazo' && styles.filterChipActive]} onPress={() => setFiltroValidade('no_prazo')}>
-          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'no_prazo' && styles.filterChipTextActive]}>No Prazo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, { backgroundColor: theme.chipBg }, filtroValidade === 'proximos' && styles.filterChipActive]} onPress={() => setFiltroValidade('proximos')}>
-          <Text style={[styles.filterChipText, { color: theme.chipText }, filtroValidade === 'proximos' && styles.filterChipTextActive]}>Próximos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterChip, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
-          <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filterChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-asc' && styles.filterChipActive]}
-          onPress={() => setOrdenacaoLista((current) => (current === 'name-asc' ? 'risk-first' : 'name-asc'))}>
-          <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-asc' && styles.filterChipTextActive]}>A-Z</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filterChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-desc' && styles.filterChipActive]}
-          onPress={() => setOrdenacaoLista((current) => (current === 'name-desc' ? 'risk-first' : 'name-desc'))}>
-          <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-desc' && styles.filterChipTextActive]}>Z-A</Text>
-        </TouchableOpacity>
-      </View>
-      {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0 || ordenacaoLista !== 'risk-first') && (
-        <TouchableOpacity
-          style={styles.clearFiltersBtn}
-          onPress={() => {
-            setFiltroValidade('todos');
-            setOrdenacaoLista('risk-first');
-            setFiltroColaborador('');
-            setFiltroStatusConferencia('todos');
-            setFiltroUnidadeMedida('todos');
-            setFiltroEmbalagem('todos');
-          }}>
-          <X size={13} />
-          <Text style={styles.clearFiltersBtnText}>Limpar filtros</Text>
-        </TouchableOpacity>
-      )}
     </View>
   </>
 );
@@ -3484,10 +3533,17 @@ btnOutline: { minWidth: '30%', flexGrow: 1, flexDirection: 'row', alignItems: 'c
 btnOutlineCompact: { minWidth: '48%' },
 btnOutlineWide: { minWidth: '22%' },
 btnOutlineText: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
+filtersBox: { marginTop: 4, borderWidth: 1, borderRadius: 16, padding: 12 },
+filtersBoxHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+filtersBoxTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 0.4 },
+filtersBoxBody: { marginTop: 10, overflow: 'hidden' },
 searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
 searchInput: { flex: 1, padding: 12, fontSize: 16, color: '#1F2937' },
-filterRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-filterChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: '#E5E7EB' },
+filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+sortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+filterChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' },
+filterChipMain: { minWidth: 104 },
+sortChip: { minWidth: 128 },
 filterChipActive: { backgroundColor: '#DBEAFE' },
 filterChipDanger: { backgroundColor: '#FEE2E2' },
 filterChipText: { color: '#4B5563', fontWeight: '800', fontSize: 15 },
