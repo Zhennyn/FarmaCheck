@@ -93,14 +93,12 @@ npm run test:import-base
 
 ## 🌐 Demonstração
 
-- 🎥 Vídeo de demonstração: adicione aqui o link do vídeo anexado quando subir no repositório
-- 🔗 Placeholder: https://github.com/Zhennyn/FarmaCheck
-
-Sugestão de formato para vídeo no GitHub:
-
+- 🎥 Vídeo de demonstração: 
 ```md
 [▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/video/FarmaCheck.gif)
 ```
+- 🔗 Placeholder: https://github.com/Zhennyn/FarmaCheck
+
 
 ## 📌 Sobre o projeto
 
