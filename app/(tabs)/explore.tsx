@@ -69,7 +69,7 @@ export default function ComoUsarScreen() {
 
         <View style={styles.headerBox}>
           <Text style={styles.headerTitle}>{t('explore.header_title')}</Text>
-          <Text style={styles.headerSub}>{t('explore.header_subtitle', { version: '1.0.4' })}</Text>
+          <Text style={styles.headerSub}>{t('explore.header_subtitle', { version: '1.0.5' })}</Text>
         </View>
 
         {guide.map((item) => (
@@ -88,7 +88,7 @@ export default function ComoUsarScreen() {
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>{t('explore.footer.description')}</Text>
-          <Text style={styles.footerVersion}>{t('explore.footer.version', { version: '1.0.4', year: '2026' })}</Text>
+          <Text style={styles.footerVersion}>{t('explore.footer.version', { version: '1.0.5', year: '2026' })}</Text>
         </View>
       </ScrollView>
     </ThemedView>

@@ -72,7 +72,7 @@ const ONBOARDING_STEPS = [
 ] as const;
 
 const VERSAO_BASE_INTERNA = 'cmed-base-v1';
-const VERSAO_APP = '1.0.4';
+const VERSAO_APP = '1.0.5';
 const CHAVE_BASE_INTERNA = '@base_interna_embutida_versao';
 const CHAVE_PRIMEIRA_INSTALACAO = '@primeira_instalacao_local_v1';
 const CHAVE_NOTIFICACAO_LEMBRETE = '@notificacao_lembrete_2h';
@@ -245,6 +245,7 @@ const [showMenuLateral, setShowMenuLateral] = useState(false);
 const [versaoBaseInternaAtual, setVersaoBaseInternaAtual] = useState('');
 const [termoBusca, setTermoBusca] = useState('');
 const [filtroValidade, setFiltroValidade] = useState<TipoFiltro>('todos');
+const [ordenacaoLista, setOrdenacaoLista] = useState<'risk-first' | 'name-asc' | 'name-desc'>('risk-first');
 const [filtroColaborador, setFiltroColaborador] = useState('');
 const [filtroStatusConferencia, setFiltroStatusConferencia] = useState<StatusConferencia | 'todos'>('todos');
 const [filtroUnidadeMedida, setFiltroUnidadeMedida] = useState<UnidadeMedida | 'todos'>('todos');
@@ -2056,8 +2057,8 @@ return queryInventory(produtosComAnalise, {
   statusFilter: filtroStatusConferencia,
   unitFilter: filtroUnidadeMedida,
   packageFilter: filtroEmbalagem,
-});
-}, [filtroColaborador, filtroEmbalagem, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, produtosComAnalise, termoBuscaAdiado]);
+}, ordenacaoLista);
+}, [filtroColaborador, filtroEmbalagem, filtroStatusConferencia, filtroUnidadeMedida, filtroValidade, ordenacaoLista, produtosComAnalise, termoBuscaAdiado]);
 
 const extraDataListaProdutos = useMemo(
   () => ({ modoAcessibilidade, produtoSwipeado, isDark }),
@@ -2320,12 +2321,23 @@ const renderListaHeader = (
         <TouchableOpacity style={[styles.filterChip, filtroValidade === 'vencidos' && styles.filterChipDanger]} onPress={() => setFiltroValidade('vencidos')}>
           <Text style={[styles.filterChipText, filtroValidade === 'vencidos' && styles.filterChipDangerText]}>Vencidos</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filterChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-asc' && styles.filterChipActive]}
+          onPress={() => setOrdenacaoLista((current) => (current === 'name-asc' ? 'risk-first' : 'name-asc'))}>
+          <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-asc' && styles.filterChipTextActive]}>A-Z</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filterChip, { backgroundColor: theme.chipBg }, ordenacaoLista === 'name-desc' && styles.filterChipActive]}
+          onPress={() => setOrdenacaoLista((current) => (current === 'name-desc' ? 'risk-first' : 'name-desc'))}>
+          <Text style={[styles.filterChipText, { color: theme.chipText }, ordenacaoLista === 'name-desc' && styles.filterChipTextActive]}>Z-A</Text>
+        </TouchableOpacity>
       </View>
-      {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0) && (
+      {(filtroValidade !== 'todos' || filtrosAvancadosAtivos > 0 || ordenacaoLista !== 'risk-first') && (
         <TouchableOpacity
           style={styles.clearFiltersBtn}
           onPress={() => {
             setFiltroValidade('todos');
+            setOrdenacaoLista('risk-first');
             setFiltroColaborador('');
             setFiltroStatusConferencia('todos');
             setFiltroUnidadeMedida('todos');
