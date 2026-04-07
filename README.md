@@ -1,181 +1,124 @@
-# FarmaCheck
+# FarmaCheck 💊
+Aplicativo mobile para controle de validade e estoque farmacêutico com foco em produtividade, rastreabilidade e análise operacional.
 
-Aplicativo mobile para controle de validade e estoque farmacêutico, com foco em operação de loja, prevenção de perdas e rastreabilidade.
+![FarmaCheck Banner](https://raw.githubusercontent.com/Zhennyn/FarmaCheck/master/assets/images/farmacheck.png)
 
-## Proposta de Valor
+## ✨ Funcionalidades
 
-O FarmaCheck foi projetado para resolver três dores reais da operação farmacêutica:
+- 📷 Leitura de código de barras para acelerar inventário em loja
+- 🗂️ Cadastro e edição de produtos com validade, lote, quantidade e responsável
+- ✅ Validações robustas de negócio (validade, quantidade e consistência de cadastro)
+- ⚠️ Classificação automática de risco: vencidos, próximos do vencimento e no prazo
+- 📉 Identificação de estoque baixo para ação preventiva
+- 🔎 Filtros e ordenação por status, colaborador, validade, unidade e embalagem
+- 📥 Importação de base em CSV/XLSX para ganho de escala operacional
+- 📊 Exportação de relatórios XLSX com abas táticas para rotina de conferência
+- 📴 Operação offline-first com SQLite local
+- 🧾 Histórico de ações para auditoria e rastreabilidade
 
-- reduzir perdas por vencimento com visão clara de risco
-- acelerar o inventário com fluxo simples e leitura de código de barras
-- padronizar registro e auditoria de itens com histórico e exportação
+## 🛠️ Tecnologias Utilizadas
 
-Resultado esperado: mais segurança operacional, menos retrabalho e melhor tomada de decisão no dia a dia da farmácia.
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Expo](https://img.shields.io/badge/Expo-000020?style=for-the-badge&logo=expo&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)
+![Jest](https://img.shields.io/badge/Jest-C21325?style=for-the-badge&logo=jest&logoColor=white)
+![i18next](https://img.shields.io/badge/i18next-26A69A?style=for-the-badge&logo=i18next&logoColor=white)
+![ExcelJS](https://img.shields.io/badge/ExcelJS-217346?style=for-the-badge&logo=microsoft-excel&logoColor=white)
+![Cloud Ready](https://img.shields.io/badge/Cloud_Ready-0A66C2?style=for-the-badge&logo=microsoftazure&logoColor=white)
 
-## Escopo
-
-- sem autenticação e sem login
-- sem uso de inteligência artificial
-- foco em estrutura, regras de negócio e usabilidade operacional
-
-## Funcionalidades
-
-- cadastro e edição de produtos com dados de validade, lote, quantidade e responsável
-- validações de negócio no cadastro:
-	- data de validade no formato correto
-	- bloqueio de cadastro com validade no passado
-	- bloqueio de quantidade negativa em estoque
-- classificação automática por risco de validade
-- listagem de produtos:
-	- vencidos
-	- próximos do vencimento (janela configurável, padrão 30 dias)
-	- baixo estoque (limite configurável, padrão 5 itens)
-- filtros combinados por busca, colaborador, status, unidade e embalagem
-- ordenação por risco, validade, nome e estoque
-- importação de base local CSV/XLSX
-- exportação de planilhas XLSX com abas de produtos, vencidos, próximos e estoque baixo
-- operação offline-first com SQLite
-- histórico de ações para auditoria
-
-## Arquitetura
-
-O projeto está organizado em camadas para facilitar manutenção e evolução:
-
-- domain: tipos e regras de domínio
-- application: serviços de caso de uso e contratos de persistência
-- shared: utilitários e constantes reutilizáveis
-- app: camada de interface e fluxo do usuário
-
-### Estrutura de Pastas (recorte principal)
-
-```text
-app/
-	(tabs)/
-		index.tsx
-
-src/
-	modules/
-		inventory/
-			application/
-				ports/
-					inventory-database.port.ts
-				repositories/
-					inventory.repository.ts
-				services/
-					inventory-business.service.ts
-					inventory-business.service.test.ts
-			domain/
-				models/
-					product.model.ts
-			shared/
-				constants/
-					inventory.constants.ts
-				utils/
-					calculations.ts
-					date.ts
-					measurement.ts
-					validation.ts
-			index.ts
-
-	features/
-		inventory/
-			index.ts
-```
-
-Observação: a pasta src/features/inventory funciona como camada de compatibilidade de importação, apontando para src/modules/inventory.
-
-## Regras de Negócio Críticas
-
-- validade deve ser data válida no formato ISO
-- cadastro não permite validade no passado
-- estoque não pode ser negativo
-- produtos são analisados automaticamente para:
-	- dias até vencimento
-	- status de risco
-	- embalagem calculada
-	- total medido calculado
-
-Essas regras ficam centralizadas no serviço:
-
-- src/modules/inventory/application/services/inventory-business.service.ts
-
-## Stack Técnica
-
-- React Native + Expo + Expo Router
-- TypeScript
-- SQLite (expo-sqlite)
-- Jest para testes unitários
-- i18next para internacionalização
-- ExcelJS para exportação de planilhas
-
-## Como Executar
+## 🚀 Como executar localmente
 
 ### Pré-requisitos
 
-- Node.js 18 ou superior
-- npm 9 ou superior
-- ambiente Expo (Android Studio e/ou Xcode para emuladores)
+- Node.js 18+
+- npm 9+
+- Expo CLI via npx
+- Android Studio (Android) e/ou Xcode (iOS)
 
-### Instalação
+### Passo a passo
+
+1. Clonar o repositório:
 
 ```bash
 git clone https://github.com/Zhennyn/FarmaCheck.git
+```
+
+2. Entrar na pasta do projeto:
+
+```bash
 cd FarmaCheck
+```
+
+3. Instalar dependências:
+
+```bash
 npm install
 ```
 
-### Desenvolvimento
+4. Iniciar o ambiente de desenvolvimento:
 
 ```bash
 npm run start
 ```
 
-Plataformas:
+5. Executar na plataforma desejada:
 
 ```bash
 npm run android
+```
+
+```bash
 npm run ios
+```
+
+```bash
 npm run web
 ```
 
-### Qualidade
+6. Rodar qualidade e testes:
 
 ```bash
 npm run lint
 npm run test
 ```
 
-### Teste de importação manual da base
+7. (Opcional) Validar importação manual da base:
 
 ```bash
 npm run test:import-base
 ```
 
-## Testes
+## 📸 Screenshots
 
-Cobertura atual inclui regras de inventário e comportamento de repositório, com foco em:
+![Tela Principal FarmaCheck](https://raw.githubusercontent.com/Zhennyn/FarmaCheck/master/assets/images/farmacheck.png)
 
-- validações de cadastro
-- cálculos de inventário
-- filtros e listagens críticas
-- integração de persistência no repositório
+## 🌐 Demonstração
 
-## Melhorias Futuras (Escalabilidade)
+- 🎥 Vídeo de demonstração: adicione aqui o link do vídeo anexado quando subir no repositório
+- 🔗 Placeholder: https://github.com/Zhennyn/FarmaCheck
 
-- separar a tela principal em componentes e casos de uso menores
-- criar API REST para sincronização com backend (mantendo app offline-first)
-- adicionar paginação e virtualização avançada para grandes volumes
-- instrumentar observabilidade de erros e métricas de uso
-- ampliar testes com cenários de importação/exportação e testes de integração
-- evoluir para sincronização multi-loja com resolução de conflitos
+Sugestão de formato para vídeo no GitHub:
 
-## Boas Práticas de Contribuição
+```md
+[▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/SEU_VIDEO)
+```
 
-- mantenha regras de negócio dentro de src/modules
-- evite lógica de domínio dentro de componentes de interface
-- adicione testes para cada regra crítica alterada
-- preserve nomes claros, funções curtas e baixo acoplamento
+## 📌 Sobre o projeto
 
-## Status do Projeto
+O FarmaCheck foi evoluído em 2026 para se tornar um case de portfólio técnico com aplicação prática em operação farmacêutica.
 
-Em evolução contínua, com base estável para uso real e expansão por módulos.
+Além de resolver um problema real de controle de vencimento e estoque, o projeto demonstra habilidades transferíveis para vagas de Suporte TI, Help Desk, Analista de Dados, Azure e Cloud:
+
+- automação de processos operacionais
+- estruturação e qualidade de dados para relatórios
+- persistência e consultas em banco local (SQLite)
+- arquitetura limpa e manutenção de código em camadas
+- pensamento full-stack (fluxo de interface, regra de negócio e persistência)
+- base pronta para integração cloud futura
+
+Feito com ❤️ por Zhennyn.
+
+Contribuições são bem-vindas: abra uma issue, sugira melhorias ou envie um pull request.
