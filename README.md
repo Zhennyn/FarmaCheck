@@ -91,10 +91,6 @@ npm run test
 npm run test:import-base
 ```
 
-## 📸 Screenshots
-
-![Tela Principal FarmaCheck](https://raw.githubusercontent.com/Zhennyn/FarmaCheck/master/assets/images/farmacheck.png)
-
 ## 🌐 Demonstração
 
 - 🎥 Vídeo de demonstração: adicione aqui o link do vídeo anexado quando subir no repositório
