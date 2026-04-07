@@ -103,7 +103,7 @@ npm run test:import-base
 Sugestão de formato para vídeo no GitHub:
 
 ```md
-[▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/SEU_VIDEO)
+[▶️ Assistir demonstração](https://github.com/Zhennyn/FarmaCheck/assets/video/FarmaCheck.mp4)
 ```
 
 ## 📌 Sobre o projeto
