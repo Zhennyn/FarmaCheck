@@ -14,7 +14,11 @@ Aplicativo mobile para controle de validade e estoque farmacêutico com foco em 
 - 📥 Importação de base em CSV/XLSX para ganho de escala operacional
 - 📊 Exportação de relatórios XLSX com abas táticas para rotina de conferência
 - 📴 Operação offline-first com SQLite local e sincronização preparada
+- 🔄 Sistema de sincronização completo com servidor simulado
 - 🧾 Histórico de ações para auditoria e rastreabilidade completa
+- 🔄 Sincronização automática/background quando online
+- 📶 Monitoramento de conectividade para sync inteligente
+- 🏗️ Arquitetura limpa em camadas (Domain, Application, Shared)
 - 🔄 Service Layer profissional com regras de negócio centralizadas
 - 🏗️ Arquitetura limpa em camadas (Domain, Application, Shared)
 
@@ -44,6 +48,183 @@ src/modules/inventory/
 │   ├── services/     # Service layer profissional
 │   └── repositories/ # Acesso a dados otimizado
 └── shared/           # Utilitários e constantes compartilhados
+```
+
+## 📊 Métricas de Performance
+
+### Sistema de Monitoramento Integrado
+- **Medição Automática**: Tempo de execução de operações CRUD
+- **Testes de Carga**: Simulação com 100, 500 e 1000 registros
+- **Logging Estruturado**: Métricas no console para análise
+- **Não Invasivo**: Pode ser removido sem afetar código principal
+
+### Utilitários de Performance
+```typescript
+import { measureTime, logPerformance } from './src/utils/performance';
+
+// Medição automática
+const result = await measureTime('create_product', async () => {
+  return service.createProduct(productData);
+});
+
+// Logging manual
+logPerformance('custom_operation', 150.5); // 150.5ms
+```
+
+### Teste de Performance
+```bash
+# Executar testes automatizados
+npx ts-node scripts/performance-test.ts
+```
+
+**Resultados Esperados:**
+- ✅ Criação: < 50ms por produto
+- ✅ Listagem: < 200ms para 1000 produtos
+- ✅ Atualização: < 30ms por produto
+- ✅ App testado com volumes altos sem perda significativa de performance
+
+### Configuração Opcional
+```bash
+# Ativar métricas em desenvolvimento
+EXPO_PUBLIC_ENABLE_PERFORMANCE_METRICS=true
+EXPO_PUBLIC_PERFORMANCE_LOG_LEVEL=detailed
+```
+
+## 🎨 Experiência do Usuário (UX) Aprimorada
+
+### Componentes de Feedback Visual
+- **LoadingView**: Indicadores de carregamento elegantes com mensagens customizáveis
+- **EmptyState**: Estados vazios informativos com ícones e ações sugeridas
+- **SmartButton**: Botões inteligentes que desabilitam durante operações e mostram loading
+- **FeedbackMessage**: Notificações animadas para sucesso/erro/aviso
+- **FeedbackContainer**: Sistema centralizado de gerenciamento de notificações
+
+### Estados de Carregamento
+```typescript
+// Loading automático durante operações
+const { isLoading, withLoading } = useLoadingState();
+
+const result = await withLoading(async () => {
+  return await apiCall();
+});
+```
+
+### Feedback de Ações
+```typescript
+// Feedback automático para operações assíncronas
+const { execute } = useAsyncOperation();
+
+await execute(
+  () => saveProduct(data),
+  {
+    successMessage: 'Produto salvo com sucesso!',
+    errorMessage: 'Erro ao salvar produto',
+    showAlertOnError: true,
+  }
+);
+```
+
+### Estados Vazios Informativos
+```typescript
+{products.length === 0 ? (
+  <EmptyState
+    title="Nenhum produto cadastrado"
+    message="Adicione seu primeiro item para começar"
+    action={<SmartButton title="Adicionar Produto" onPress={addProduct} />}
+  />
+) : (
+  <ProductList products={products} />
+)}
+```
+
+### Botões Inteligentes
+```typescript
+<SmartButton
+  title="Salvar"
+  onPress={handleSave}
+  loading={isSaving}
+  loadingText="Salvando..."
+  disabled={!isValid}
+  variant="primary"
+  size="large"
+/>
+```
+
+### Hook de Operações Assíncronas
+```typescript
+const operation = useAsyncOperation();
+
+// Executa com feedback automático
+await operation.execute(
+  () => api.save(data),
+  { successMessage: 'Salvo!', errorMessage: 'Erro ao salvar' }
+);
+```
+
+### Sistema de Notificações
+- ✅ **Animações Suaves**: Entrada/saída com fade e slide
+- ✅ **Auto-dismiss**: Configurável por tipo de mensagem
+- ✅ **Tipos Visuais**: Success (verde), Error (vermelho), Warning (amarelo), Info (azul)
+- ✅ **Centralizado**: Container único para todas as notificações
+- ✅ **Acessível**: Feedback visual e textual claro
+
+### Componentes Reutilizáveis
+```
+components/ui/
+├── loading-view.tsx      # Estados de carregamento
+├── empty-state.tsx       # Estados vazios
+├── smart-button.tsx      # Botões inteligentes
+├── feedback-message.tsx  # Sistema de notificações
+└── sync-button.tsx       # Botão de sincronização
+```
+
+### Exemplo de Uso Completo
+```typescript
+import { LoadingView, EmptyState, SmartButton } from '../ui';
+import { useAsyncOperation } from '../../hooks/use-async-operation';
+
+const ProductScreen = () => {
+  const { execute, isLoading } = useAsyncOperation();
+  const [products, setProducts] = useState([]);
+
+  const loadProducts = () => execute(() => api.getProducts());
+  const addProduct = () => execute(() => api.createProduct(data));
+
+  if (isLoading && !products.length) {
+    return <LoadingView message="Carregando produtos..." fullScreen />;
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      {products.length === 0 ? (
+        <EmptyState
+          title="Nenhum produto"
+          message="Adicione seu primeiro produto"
+          action={<SmartButton title="Adicionar" onPress={addProduct} />}
+        />
+      ) : (
+        <ProductList products={products} />
+      )}
+    </View>
+  );
+};
+```
+
+### Sistema de Sincronização Offline-First
+- **Sincronização Inteligente**: Busca automática de itens pendentes (`sync_status = 'pending'`)
+- **Simulação de API**: `fakeApiSync()` com delay realista e validações simuladas
+- **Retry Automático**: Até 3 tentativas com backoff exponencial
+- **Estado de Sync**: Loading, success, error com feedback visual
+- **Background Sync**: Sincronização automática quando app volta ao foreground
+- **Monitoramento de Conectividade**: Sync automático quando volta online
+- **Tratamento de Erros**: Manutenção de estado consistente em caso de falha
+
+### Estados de Sincronização
+```
+idle     → Aguardando ação do usuário
+syncing  → Sincronização em andamento
+success  → Sincronização concluída com sucesso
+error    → Erro na sincronização (com retry disponível)
 ```
 
 ## 🛠️ Tecnologias Utilizadas

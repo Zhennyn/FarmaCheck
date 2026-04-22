@@ -31,9 +31,17 @@ Farmacias perdem margem e produtividade por falhas em controle de validade, regi
 - Auditoria automática: logs para CREATE, UPDATE, DELETE
 
 ### Repository Pattern Aprimorado
-- Consultas otimizadas: `findExpiringSoon()`, `findLowStock()`
+- Consultas otimizadas: `findExpiringSoon()`, `findLowStock()`, `findPendingSync()`
 - Campos de sincronização: `sync_status`, `updated_at` para cloud-ready
 - Operações seguras com tratamento de concorrência
+
+### Sistema de Sincronização Offline-First
+- **Sync Service Profissional**: Gerenciamento completo do estado de sincronização
+- **Fake API Simulation**: Simulação realista de servidor com delays e validações
+- **Retry Logic**: Estratégia robusta de tentativas com backoff exponencial
+- **State Management**: Estados bem definidos (idle, syncing, success, error)
+- **Background Sync**: Sincronização automática baseada em conectividade
+- **Error Handling**: Tratamento consistente de falhas de rede
 
 ### Qualidade de Código
 - TypeScript rigoroso em todas as camadas

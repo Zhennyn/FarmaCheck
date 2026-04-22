@@ -61,6 +61,19 @@ export const inventoryRepository = (db: InventoryDatabase) => ({
   delete: async (id: string) => {
     await db.runAsync('DELETE FROM produtos WHERE id = ?', id);
   },
+
+  findPendingSync: async () => {
+    return db.getAllAsync<Produto>(
+      `SELECT * FROM produtos WHERE sync_status = 'pending'`
+    );
+  },
+
+  markAsSynced: async (id: string) => {
+    await db.runAsync(
+      `UPDATE produtos SET sync_status = 'synced' WHERE id = ?`,
+      id
+    );
+  },
 export type { InventoryDatabase } from '../ports/inventory-database.port';
 
 export type { InventoryDatabase } from '../ports/inventory-database.port';

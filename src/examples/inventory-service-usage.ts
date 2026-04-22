@@ -3,6 +3,7 @@
 
 import { inventoryRepository } from '../modules/inventory/application/repositories/inventory.repository';
 import { inventoryService } from '../modules/inventory/application/services/inventory.service';
+import { syncService } from '../modules/inventory/application/services/sync.service';
 import { sqliteClient } from '../database/sqlite-client';
 
 // Exemplo de uso em um componente React ou hook
@@ -85,3 +86,121 @@ export const checkProductAlerts = (product: { validade: string; validades_adicio
   }
   return null;
 };
+
+// ==========================================
+// SISTEMA DE SINCRONIZAÇÃO OFFLINE-FIRST
+// ==========================================
+
+// Exemplo de uso do Sync Service
+export const useSyncService = () => {
+  const db = sqliteClient();
+  const repo = inventoryRepository(db);
+  const syncSvc = syncService(repo);
+
+  const syncPendingItems = async () => {
+    const result = await syncSvc.syncPendingItems(3); // Máximo 3 tentativas
+
+    if (result.status === 'success') {
+      console.log(`✅ Sincronização concluída! ${result.syncedCount} itens sincronizados`);
+      // Aqui você pode mostrar uma notificação de sucesso
+      // Toast.show({ type: 'success', text1: 'Dados sincronizados com sucesso!' });
+    } else {
+      console.error('❌ Erro na sincronização:', result.errors);
+      // Aqui você pode mostrar uma notificação de erro
+      // Toast.show({ type: 'error', text1: 'Erro na sincronização', text2: result.errors[0] });
+    }
+
+    return result;
+  };
+
+  const markItemAsSynced = async (productId: string) => {
+    const result = await syncSvc.markAsSynced(productId);
+    if (result.success) {
+      console.log(`✅ Produto ${productId} marcado como sincronizado`);
+    } else {
+      console.error('❌ Erro ao marcar como sincronizado:', result.error);
+    }
+    return result;
+  };
+
+  const getSyncState = () => {
+    return syncSvc.getSyncState();
+  };
+
+  return {
+    syncPendingItems,
+    markItemAsSynced,
+    getSyncState,
+  };
+};
+
+// Exemplo de componente React usando o hook de sincronização
+/*
+import React from 'react';
+import { View } from 'react-native';
+import { useSync } from '../hooks/use-sync';
+import { SyncButton } from '../../components/ui/sync-button';
+import { useSyncService } from './inventory-service-usage';
+
+export const InventoryScreen: React.FC = () => {
+  const syncServiceInstance = useSyncService();
+  const { syncState, syncPendingItems } = useSync(syncServiceInstance);
+
+  const handleSync = async () => {
+    await syncPendingItems();
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Seu conteúdo existente */}
+      {/* Botão de sincronização */}
+      <SyncButton
+        syncState={syncState}
+        onSyncPress={handleSync}
+      />
+    </View>
+  );
+};
+*/
+
+// Exemplo de integração com background sync (quando app volta ao foreground)
+/*
+import { AppState } from 'react-native';
+
+export const useBackgroundSync = (syncService: ReturnType<typeof useSyncService>) => {
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        // App voltou ao foreground - verificar se há itens para sync
+        const state = syncService.getSyncState();
+        if (state.status === 'idle' && state.isOnline) {
+          // Tentar sync automático em background
+          syncService.syncPendingItems().catch(console.error);
+        }
+      }
+    });
+
+    return () => subscription?.remove();
+  }, [syncService]);
+};
+*/
+
+// Exemplo de monitoramento de conectividade
+/*
+import NetInfo from '@react-native-community/netinfo';
+
+export const useConnectivitySync = (syncService: ReturnType<typeof useSyncService>) => {
+  React.useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const isOnline = state.isConnected && state.isInternetReachable;
+
+      // Quando volta online, tentar sincronizar automaticamente
+      if (isOnline && syncService.getSyncState().status === 'idle') {
+        syncService.syncPendingItems().catch(console.error);
+      }
+    });
+
+    return unsubscribe;
+  }, [syncService]);
+};
+*/
