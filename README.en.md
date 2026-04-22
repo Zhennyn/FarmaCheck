@@ -18,16 +18,19 @@ FarmaCheck addresses three critical operational problems:
 
 ## Core Features
 
-- product registration and editing (expiry date, batch, quantity, operator)
-- robust business validations:
+- ✅ product registration and editing (expiry date, batch, quantity, operator)
+- ✅ robust business validations:
   - expiry date format validation
   - block product creation with past expiry date
   - block negative stock quantity
-- automatic expiry-risk classification
-- inventory lists for:
+- ✅ automatic expiry-risk classification
+- ✅ inventory lists for:
   - expired products
-  - near-expiry products (configurable window, default 30 days)
+  - near-expiry products (configurable window, default 7 days)
   - low-stock products (configurable threshold, default 5)
+- ✅ **Professional Service Layer with centralized business rules**
+- ✅ **Complete audit trail with operation logs**
+- ✅ **Clean Architecture in layers (Domain, Application, Shared)**
 - filtering and sorting by search term, collaborator, status, unit, and package
 - CSV/XLSX import for internal product base
 - XLSX export with dedicated worksheets (all products, expired, near-expiry, low-stock)
@@ -67,11 +70,40 @@ src/
 
 Note: src/features/inventory currently works as a compatibility layer pointing to src/modules/inventory.
 
+## Recent Improvements (2026)
+
+### Professional Service Layer
+- **Centralized Business Rules**: Dedicated service layer with robust validations
+- **Structured Error Handling**: Result pattern for safe operations
+- **Complete Audit Trail**: Automatic logs for all operations (CREATE, UPDATE, DELETE)
+
+### Enhanced Repository Pattern
+- **Optimized Queries**: `findExpiringSoon()` and `findLowStock()` for smart alerts
+- **Sync-Ready**: `sync_status` field for future cloud integration
+- **Automatic Timestamps**: `updated_at` for change tracking
+
+### Business Validations
+- ✅ Name and code required
+- ✅ Quantity cannot be negative
+- ✅ Expiry date must be valid and future
+- ✅ Rules consistently applied in create/update
+
+### Code Structure
+```
+src/modules/inventory/
+├── domain/           # Domain models and types
+├── application/      # Use cases and business rules
+│   ├── services/     # Professional service layer
+│   └── repositories/ # Optimized data access
+└── shared/           # Shared utilities and constants
+```
+
 ## Business Rules
 
 Implemented in:
 
 - src/modules/inventory/application/services/inventory-business.service.ts
+- src/modules/inventory/application/services/inventory.service.ts (new professional layer)
 
 Critical rules:
 

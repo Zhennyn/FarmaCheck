@@ -44,6 +44,8 @@ export type Produto = {
   lote?: string;
   observacao?: string;
   status_conferencia?: StatusConferencia;
+  sync_status?: 'pending' | 'synced';
+  updated_at?: number;
 };
 
 export type ProdutoComAnalise = Produto & {
@@ -74,4 +76,10 @@ export type HistoricoRegistro = {
   data_evento: number;
   detalhes: string;
   tipo_produto?: string;
+};
+
+export type Log = {
+  id: string;
+  action: string;
+  timestamp: number;
 };

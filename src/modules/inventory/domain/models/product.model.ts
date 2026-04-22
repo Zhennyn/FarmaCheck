@@ -1,6 +1,7 @@
 export type {
     CadastroEan,
     HistoricoRegistro,
+    Log,
     Produto,
     ProdutoComAnalise,
     StatusConferencia,

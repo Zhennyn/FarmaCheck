@@ -13,8 +13,38 @@ Aplicativo mobile para controle de validade e estoque farmacêutico com foco em 
 - 🔎 Filtros e ordenação por status, colaborador, validade, unidade e embalagem
 - 📥 Importação de base em CSV/XLSX para ganho de escala operacional
 - 📊 Exportação de relatórios XLSX com abas táticas para rotina de conferência
-- 📴 Operação offline-first com SQLite local
-- 🧾 Histórico de ações para auditoria e rastreabilidade
+- 📴 Operação offline-first com SQLite local e sincronização preparada
+- 🧾 Histórico de ações para auditoria e rastreabilidade completa
+- 🔄 Service Layer profissional com regras de negócio centralizadas
+- 🏗️ Arquitetura limpa em camadas (Domain, Application, Shared)
+
+## 🏗️ Arquitetura e Melhorias Recentes (2026)
+
+### Service Layer Profissional
+- **Centralização de Regras de Negócio**: Service layer dedicado com validações robustas
+- **Tratamento de Erros Estruturado**: Result pattern para operações seguras
+- **Auditoria Completa**: Logs automáticos para todas as operações (CREATE, UPDATE, DELETE)
+
+### Repository Pattern Aprimorado
+- **Consultas Otimizadas**: `findExpiringSoon()` e `findLowStock()` para alertas inteligentes
+- **Sincronização Preparada**: Campo `sync_status` para futura integração cloud
+- **Timestamps Automáticos**: `updated_at` para rastreamento de modificações
+
+### Validações de Negócio
+- ✅ Nome e código obrigatórios
+- ✅ Quantidade não pode ser negativa
+- ✅ Data de validade deve ser válida e futura
+- ✅ Regras aplicadas consistentemente em create/update
+
+### Estrutura de Código
+```
+src/modules/inventory/
+├── domain/           # Modelos e tipos de domínio
+├── application/      # Casos de uso e regras de negócio
+│   ├── services/     # Service layer profissional
+│   └── repositories/ # Acesso a dados otimizado
+└── shared/           # Utilitários e constantes compartilhados
+```
 
 ## 🛠️ Tecnologias Utilizadas
 
@@ -102,16 +132,24 @@ npm run test:import-base
 
 ## 📌 Sobre o projeto
 
-O FarmaCheck foi evoluído em 2026 para se tornar um case de portfólio técnico com aplicação prática em operação farmacêutica.
+O FarmaCheck foi evoluído em 2026 para se tornar um case de portfólio técnico completo com aplicação prática em operação farmacêutica e demonstração de engenharia de software profissional.
 
+### Evolução Arquitetural
+- **De CRUD simples para arquitetura limpa**: Implementação de Service Layer, Repository Pattern e separação clara de responsabilidades
+- **Offline-first robusto**: SQLite com campos de sincronização preparados para cloud
+- **Auditoria profissional**: Tabela de logs para rastreabilidade completa de operações
+- **TypeScript rigoroso**: Tipagem forte em todas as camadas da aplicação
+
+### Habilidades Demonstradas
 Além de resolver um problema real de controle de vencimento e estoque, o projeto demonstra habilidades transferíveis para vagas de Suporte TI, Help Desk, Analista de Dados, Azure e Cloud:
 
-- automação de processos operacionais
-- estruturação e qualidade de dados para relatórios
-- persistência e consultas em banco local (SQLite)
-- arquitetura limpa e manutenção de código em camadas
-- pensamento full-stack (fluxo de interface, regra de negócio e persistência)
-- base pronta para integração cloud futura
+- ✅ **Arquitetura limpa**: Separação em camadas (Domain, Application, Shared)
+- ✅ **Regras de negócio centralizadas**: Service layer com validações robustas
+- ✅ **Persistência otimizada**: Consultas eficientes e estrutura preparada para sync
+- ✅ **Tratamento de erros profissional**: Result pattern e logs estruturados
+- ✅ **Testabilidade**: Código modular pronto para testes unitários e integração
+- ✅ **Pensamento full-stack**: Fluxo completo de interface → negócio → persistência
+- ✅ **Base cloud-ready**: Estrutura preparada para sincronização futura
 
 Feito com ❤️ por Zhennyn.
 

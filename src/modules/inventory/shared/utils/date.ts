@@ -110,3 +110,8 @@ export const nearestExpiry = (mainExpiry: string, additionalExpiryJson?: string)
 
   return nearest.toISOString().split('T')[0];
 };
+
+export const isExpiringSoon = (product: { validade: string; validades_adicionais?: string }): boolean => {
+  const daysUntilExpiry = getDaysUntilExpiry(nearestExpiry(product.validade, product.validades_adicionais));
+  return daysUntilExpiry >= 0 && daysUntilExpiry <= 7;
+};

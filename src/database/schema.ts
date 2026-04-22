@@ -33,7 +33,17 @@ export const createBaseSchema = async (db: SqliteDatabase) => {
       colaborador TEXT,
       lote TEXT,
       observacao TEXT,
-      status_conferencia TEXT DEFAULT 'pendente'
+      status_conferencia TEXT DEFAULT 'pendente',
+      sync_status TEXT DEFAULT 'synced',
+      updated_at INTEGER
+    )`
+  );
+
+  await db.runAsync(
+    `CREATE TABLE IF NOT EXISTS logs (
+      id TEXT PRIMARY KEY NOT NULL,
+      action TEXT NOT NULL,
+      timestamp INTEGER NOT NULL
     )`
   );
 
@@ -73,6 +83,8 @@ export const createBaseSchema = async (db: SqliteDatabase) => {
   await ensureColumn(db, 'produtos', 'lote TEXT');
   await ensureColumn(db, 'produtos', 'observacao TEXT');
   await ensureColumn(db, 'produtos', "status_conferencia TEXT DEFAULT 'pendente'");
+  await ensureColumn(db, 'produtos', "sync_status TEXT DEFAULT 'synced'");
+  await ensureColumn(db, 'produtos', 'updated_at INTEGER');
   await ensureColumn(db, 'ean_cache', "unidade_medida TEXT DEFAULT 'unidades'");
   await ensureColumn(db, 'ean_cache', 'embalagem TEXT');
   await ensureColumn(db, 'ean_cache', 'quantidade_medida REAL DEFAULT 0');
