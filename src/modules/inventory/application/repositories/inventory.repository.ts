@@ -74,7 +74,7 @@ export const inventoryRepository = (db: InventoryDatabase) => ({
       id
     );
   },
-export type { InventoryDatabase } from '../ports/inventory-database.port';
+});
 
 export type { InventoryDatabase } from '../ports/inventory-database.port';
 

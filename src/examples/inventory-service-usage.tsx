@@ -1,4 +1,27 @@
-// Exemplo de uso do novo Inventory Service
+import { View } from 'react-native';
+import { useSync } from '../hooks/use-sync';
+import { SyncButton } from '../../components/ui/sync-button';
+import { useSyncService } from './inventory-service-usage';
+
+export const InventoryScreen: React.FC = () => {
+  const syncServiceInstance = useSyncService();
+  const { syncState, syncPendingItems } = useSync(syncServiceInstance);
+
+  const handleSync = async () => {
+    await syncPendingItems();
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Seu conteúdo existente */}
+      {/* Botão de sincronização */}
+      <SyncButton
+        syncState={syncState}
+        onSyncPress={handleSync}
+      />
+    </View>
+  );
+};// Exemplo de uso do novo Inventory Service
 // Este arquivo demonstra como integrar o service na aplicação
 
 import { inventoryRepository } from '../modules/inventory/application/repositories/inventory.repository';
@@ -161,46 +184,3 @@ export const InventoryScreen: React.FC = () => {
     </View>
   );
 };
-*/
-
-// Exemplo de integração com background sync (quando app volta ao foreground)
-/*
-import { AppState } from 'react-native';
-
-export const useBackgroundSync = (syncService: ReturnType<typeof useSyncService>) => {
-  React.useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        // App voltou ao foreground - verificar se há itens para sync
-        const state = syncService.getSyncState();
-        if (state.status === 'idle' && state.isOnline) {
-          // Tentar sync automático em background
-          syncService.syncPendingItems().catch(console.error);
-        }
-      }
-    });
-
-    return () => subscription?.remove();
-  }, [syncService]);
-};
-*/
-
-// Exemplo de monitoramento de conectividade
-/*
-import NetInfo from '@react-native-community/netinfo';
-
-export const useConnectivitySync = (syncService: ReturnType<typeof useSyncService>) => {
-  React.useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      const isOnline = state.isConnected && state.isInternetReachable;
-
-      // Quando volta online, tentar sincronizar automaticamente
-      if (isOnline && syncService.getSyncState().status === 'idle') {
-        syncService.syncPendingItems().catch(console.error);
-      }
-    });
-
-    return unsubscribe;
-  }, [syncService]);
-};
-*/
