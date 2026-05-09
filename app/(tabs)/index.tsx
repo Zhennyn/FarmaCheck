@@ -2076,6 +2076,18 @@ export default function App() {
       }
     });
 
+    try {
+      fetch(`https://ouybonjvaodvuifrsone.supabase.co/rest/v1/items?id=in.(${ids.join(',')})`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': 'sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q',
+          'Authorization': 'Bearer sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q'
+        }
+      });
+    } catch (e) {
+      console.log('Erro ao excluir no Supabase', e);
+    }
+
     if (editandoId && idsSet.has(editandoId)) {
       limparFormulario();
     }
@@ -2795,7 +2807,7 @@ export default function App() {
         renderItem={renderProdutoItem}
         keyExtractor={(item) => item.id}
         extraData={extraDataListaProdutos}
-        ListHeaderComponent={renderListaHeader}
+        ListHeaderComponent={renderListaHeader()}
         ListFooterComponent={<View style={{ height: 88 }} />}
         removeClippedSubviews={Platform.OS === 'android'}
         initialNumToRender={10}
