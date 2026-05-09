@@ -791,9 +791,10 @@ export default function App() {
 
   const registrarHistorico = useCallback(async (entrada: Omit<HistoricoRegistro, 'id' | 'data_evento'>, dbAtual?: BancoDados) => {
     const db = dbAtual || await abrirBanco();
+    const novoId = gerarId();
     await db.runAsync(
       'INSERT INTO historico_produtos (id, produto_id, acao, nome, codigo, colaborador, data_evento, detalhes, tipo_produto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      gerarId(),
+      novoId,
       entrada.produto_id,
       entrada.acao,
       entrada.nome,
@@ -803,6 +804,45 @@ export default function App() {
       entrada.detalhes,
       entrada.tipo_produto || ''
     );
+
+    try {
+      fetch('https://ouybonjvaodvuifrsone.supabase.co/rest/v1/items?on_conflict=id', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': 'sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q',
+          'Authorization': 'Bearer sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q',
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify({
+          id: String(entrada.produto_id),
+          barcode: String(entrada.codigo),
+          name: String(entrada.nome),
+          category: String(entrada.tipo_produto || 'Diversos'),
+          quantity: 1,
+          risk_level: 'low'
+        })
+      }).then(() => {
+        fetch('https://ouybonjvaodvuifrsone.supabase.co/rest/v1/scan_logs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': 'sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q',
+            'Authorization': 'Bearer sb_publishable_y32zbEDXhC0XrCka9137yw_XnWjN79Q'
+          },
+          body: JSON.stringify({
+            id: String(novoId),
+            item_id: String(entrada.produto_id),
+            employee_name: String(entrada.colaborador || 'Desconhecido'),
+            action: entrada.acao === 'cadastro' ? 'entrada' : 'saida',
+            quantity: 1,
+            synced: true
+          })
+        });
+      });
+    } catch (e) {
+      console.log('Supabase sync error:', e);
+    }
   }, [abrirBanco]);
 
   const gerarAlertasCadastro = () => {

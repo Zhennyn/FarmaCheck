@@ -26,8 +26,7 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
   const { data, error } = await supabase
     .from('scan_logs')
     .select(`
-      id, item_id, employee_id, scanned_at, action, quantity, synced,
-      profiles!employee_id ( name ),
+      id, item_id, employee_name, scanned_at, action, quantity, synced,
       items!item_id ( name, category, risk_level )
     `)
     .order('scanned_at', { ascending: false })
@@ -39,27 +38,25 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
     const row = rawRow as {
       id: string;
       item_id: string;
-      employee_id: string;
+      employee_name: string;
       scanned_at: string;
       action: 'entrada' | 'saida';
       quantity: number;
       synced: boolean;
-      profiles: { name: string }[] | { name: string } | null;
       items: { name: string; category: string; risk_level: string }[] | { name: string; category: string; risk_level: string } | null;
     };
 
-    const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
     const itemObj = Array.isArray(row.items) ? row.items[0] : row.items;
 
     return {
       id: row.id,
       item_id: row.item_id,
-      employee_id: row.employee_id,
+      employee_id: '',
       scanned_at: row.scanned_at,
       action: row.action,
       quantity: row.quantity,
       synced: row.synced,
-      employee_name: profileObj?.name ?? 'Desconhecido',
+      employee_name: row.employee_name || 'Desconhecido',
       item_name: itemObj?.name ?? 'Desconhecido',
       item_category: itemObj?.category ?? '',
       item_risk_level: (itemObj?.risk_level ?? 'low') as EnrichedLog['item_risk_level'],
