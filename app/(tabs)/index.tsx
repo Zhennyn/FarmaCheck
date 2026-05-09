@@ -806,6 +806,9 @@ export default function App() {
     );
 
     try {
+      const match = entrada.detalhes.match(/Val (\d{4}-\d{2}-\d{2})/);
+      const expiryDate = match ? match[1] : null;
+
       fetch('https://ouybonjvaodvuifrsone.supabase.co/rest/v1/items?on_conflict=id', {
         method: 'POST',
         headers: {
@@ -820,7 +823,8 @@ export default function App() {
           name: String(entrada.nome),
           category: String(entrada.tipo_produto || 'Diversos'),
           quantity: 1,
-          risk_level: 'low'
+          risk_level: 'low',
+          expiry_date: expiryDate
         })
       }).then(() => {
         fetch('https://ouybonjvaodvuifrsone.supabase.co/rest/v1/scan_logs', {
