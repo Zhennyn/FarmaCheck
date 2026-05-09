@@ -14,6 +14,7 @@ export interface EnrichedLog {
   item_name: string;
   item_category: string;
   item_risk_level: 'low' | 'medium' | 'high' | 'critical';
+  item_expiry_date: string | null;
 }
 
 interface RealtimeLogsState {
@@ -27,10 +28,10 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
     .from('scan_logs')
     .select(`
       id, item_id, employee_name, scanned_at, action, quantity, synced,
-      items!item_id ( name, category, risk_level )
+      items!item_id ( name, category, risk_level, expiry_date )
     `)
     .order('scanned_at', { ascending: false })
-    .limit(200);
+    .limit(300);
 
   if (error || !data) return [];
 
@@ -43,7 +44,7 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
       action: 'entrada' | 'saida';
       quantity: number;
       synced: boolean;
-      items: { name: string; category: string; risk_level: string }[] | { name: string; category: string; risk_level: string } | null;
+      items: { name: string; category: string; risk_level: string; expiry_date: string | null }[] | { name: string; category: string; risk_level: string; expiry_date: string | null } | null;
     };
 
     const itemObj = Array.isArray(row.items) ? row.items[0] : row.items;
@@ -60,6 +61,7 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
       item_name: itemObj?.name ?? 'Desconhecido',
       item_category: itemObj?.category ?? '',
       item_risk_level: (itemObj?.risk_level ?? 'low') as EnrichedLog['item_risk_level'],
+      item_expiry_date: itemObj?.expiry_date ?? null,
     };
   });
 };
