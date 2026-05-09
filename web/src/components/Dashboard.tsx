@@ -114,7 +114,7 @@ const Dashboard = () => {
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' às');
   };
 
   const downloadCSV = () => {
@@ -246,7 +246,7 @@ const Dashboard = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #1f2937' }}>
-                  {['Funcionário', 'Item', 'Vencimento', 'Ação', 'Qtd', 'Risco', 'Horário'].map((h) => (
+                  {['Funcionário', 'Item', 'Vencimento', 'Ação', 'Qtd', 'Risco', 'Data/Hora'].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '12px', color: '#6b7280', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr>
