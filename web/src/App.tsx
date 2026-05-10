@@ -1,61 +1,45 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
-import ExpiryAlert from './components/ExpiryAlert';
+import EmployeeManager from './components/EmployeeManager';
+import ItemManager from './components/ItemManager';
+import OrphanItemsManager from './components/OrphanItemsManager';
+import ExpiryAlerts from './components/ExpiryAlerts';
+import ProductivityRanking from './components/ProductivityRanking';
+import Reports from './components/Reports';
+import StockAlerts from './components/StockAlerts';
+import Settings from './components/Settings';
+import useRealtimeLogs from './hooks/useRealtimeLogs';
 
-type View = 'dashboard' | 'expiry';
-
-const NAV_ITEMS: { id: View; label: string; icon: string }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { id: 'expiry', label: 'Validades', icon: '🔔' },
-];
+type Page = 'dashboard' | 'employees' | 'items' | 'reports' | 'alerts' | 'orphans' | 'ranking' | 'stock' | 'settings';
 
 const App = () => {
-  const [view, setView] = useState<View>('dashboard');
+  const [page, setPage] = useState<Page>('dashboard');
+  const { logs } = useRealtimeLogs({ limit: 200 });
+
+  const criticalCount = useMemo(() => {
+    const today = new Date();
+    return logs.filter((l) => {
+      if (l.item_risk_level === 'critical') return true;
+      if (!l.item_expiry_date) return false;
+      const days = Math.ceil((new Date(l.item_expiry_date).getTime() - today.getTime()) / 86400000);
+      return days <= 7;
+    }).length;
+  }, [logs]);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0d0d1a', fontFamily: 'Inter, sans-serif' }}>
-      <nav style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '12px 32px',
-        background: '#111827',
-        borderBottom: '1px solid #1f2937',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-      }}>
-        <span style={{ color: '#6366f1', fontWeight: 700, fontSize: 18, marginRight: 24 }}>
-          💊 FarmaCheck
-        </span>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setView(item.id)}
-            style={{
-              background: view === item.id ? '#6366f1' : 'transparent',
-              color: view === item.id ? '#ffffff' : '#9ca3af',
-              border: '1px solid',
-              borderColor: view === item.id ? '#6366f1' : '#374151',
-              borderRadius: 8,
-              padding: '8px 16px',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.15s',
-            }}
-          >
-            {item.icon} {item.label}
-          </button>
-        ))}
-      </nav>
-
-      <main>
-        {view === 'dashboard' && <Dashboard />}
-        {view === 'expiry' && <ExpiryAlert />}
+    <div className="flex h-screen overflow-hidden bg-gray-950 text-white">
+      <Sidebar active={page} onNavigate={(p) => setPage(p as Page)} criticalCount={criticalCount} />
+      <main className="flex-1 overflow-y-auto">
+        {page === 'dashboard'  && <Dashboard />}
+        {page === 'employees'  && <EmployeeManager />}
+        {page === 'items'      && <ItemManager />}
+        {page === 'reports'    && <Reports />}
+        {page === 'alerts'     && <ExpiryAlerts />}
+        {page === 'orphans'    && <OrphanItemsManager />}
+        {page === 'ranking'    && <ProductivityRanking />}
+        {page === 'stock'      && <StockAlerts />}
+        {page === 'settings'   && <Settings />}
       </main>
     </div>
   );
