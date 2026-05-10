@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '../lib/supabase';
+import GlassCard from './ui/GlassCard';
 
-interface OrphanItem {
-  id: string; barcode: string; name: string; category: string;
-  quantity: number; expiry_date: string | null; risk_level: string; created_at: string;
-}
-
+interface OrphanItem { id: string; barcode: string; name: string; category: string; quantity: number; expiry_date: string | null; risk_level: string; created_at: string; }
 interface ScanLogRow { id: string; employee_id: string | null; scanned_at: string; action: string; quantity: number; }
 
 type Tab = 'orphans' | 'duplicates';
@@ -89,78 +86,73 @@ const OrphanItemsManager: React.FC = () => {
     setDetailLoading(false);
   }, []);
 
-  const tabCls = (t: Tab) => `px-5 py-2.5 text-sm font-bold rounded-t-xl border-b-2 transition ${tab === t ? 'border-indigo-500 text-indigo-400 bg-gray-900' : 'border-transparent text-gray-500 hover:text-gray-300'}`;
+  const tabCls = (t: Tab) => `px-5 py-2.5 text-sm font-bold rounded-t-xl border-b-2 transition ${tab === t ? 'border-[var(--accent-blue)] text-[var(--accent-blue)] bg-[var(--bg-surface)]' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`;
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="space-y-4 relative">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black text-white">Gerenciador de Itens</h1>
-        <button onClick={fetchData} disabled={loading} className="text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-xl transition">
+        <h1 className="text-2xl font-black text-[var(--text-primary)]">Gerenciador de Itens</h1>
+        <button onClick={fetchData} disabled={loading} className="btn-ghost">
           {loading ? 'Carregando...' : '↺ Recarregar'}
         </button>
       </div>
 
-      {error && <div className="bg-red-900/30 text-red-400 text-sm px-4 py-3 rounded-xl">{error}</div>}
+      {error && <GlassCard accent="red" className="!bg-[rgba(248,113,113,0.1)] text-[var(--accent-red)] text-sm !p-3">{error}</GlassCard>}
 
-      <div className="flex gap-0 border-b border-gray-800">
+      <div className="flex gap-0 border-b border-[var(--border-glass)]">
         <button className={tabCls('orphans')} onClick={() => { setTab('orphans'); setSelected(new Set()); }}>Órfãos ({orphans.length})</button>
         <button className={tabCls('duplicates')} onClick={() => { setTab('duplicates'); setSelected(new Set()); }}>Duplicados ({duplicates.length})</button>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <GlassCard className="flex flex-wrap gap-3">
         {selected.size > 0 && (
-          <button onClick={() => deleteIds(Array.from(selected))} disabled={actionLoading} className="bg-red-900/50 text-red-400 text-sm font-bold px-4 py-2 rounded-xl border border-red-800 hover:bg-red-900/70 transition">
+          <button onClick={() => deleteIds(Array.from(selected))} disabled={actionLoading} className="btn-danger">
             Deletar selecionados ({selected.size})
           </button>
         )}
         {tab === 'orphans' && orphans.length > 0 && (
-          <button onClick={() => deleteIds(orphans.map((o) => o.id))} disabled={actionLoading} className="bg-red-950/80 text-red-400 text-sm font-bold px-4 py-2 rounded-xl border border-red-900 hover:bg-red-950 transition">
+          <button onClick={() => deleteIds(orphans.map((o) => o.id))} disabled={actionLoading} className="btn-danger">
             Deletar todos os órfãos ({orphans.length})
           </button>
         )}
         {tab === 'duplicates' && duplicates.length > 0 && (
-          <button onClick={keepNewest} disabled={actionLoading} className="bg-yellow-900/30 text-yellow-400 text-sm font-bold px-4 py-2 rounded-xl border border-yellow-800 hover:bg-yellow-900/50 transition">
+          <button onClick={keepNewest} disabled={actionLoading} className="btn-primary !border-[var(--border-yellow)] !text-[var(--accent-yellow)] !bg-[rgba(251,191,36,0.15)] hover:!bg-[rgba(251,191,36,0.25)]">
             Manter mais recente e deletar restantes
           </button>
         )}
-      </div>
+      </GlassCard>
 
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+      <GlassCard className="!p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="glass-table">
             <thead>
-              <tr className="border-b border-gray-800 bg-gray-900/80">
-                <th className="px-4 py-3"><input type="checkbox" checked={selected.size === currentList.length && currentList.length > 0} onChange={toggleAll} /></th>
-                {['ID', 'Nome', 'Código de Barras', 'Qtd', 'Motivo', 'Ações'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
-                ))}
+              <tr>
+                <th><input type="checkbox" checked={selected.size === currentList.length && currentList.length > 0} onChange={toggleAll} /></th>
+                {['ID', 'Nome', 'Código de Barras', 'Qtd', 'Motivo', 'Ações'].map(h => <th key={h}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {currentList.length === 0 && !loading ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-600">Nenhum item encontrado.</td></tr>
+                <tr><td colSpan={7} className="text-center py-8 text-[var(--text-muted)]">Nenhum item encontrado.</td></tr>
               ) : currentList.map((item) => {
                 const isOldest = tab === 'duplicates' && oldestId(item.barcode) === item.id;
-                const rowCls = tab === 'orphans'
-                  ? 'bg-red-950/20 border-l-2 border-red-700'
-                  : isOldest ? 'bg-yellow-950/30 border-l-2 border-yellow-600' : 'bg-yellow-950/10 border-l-2 border-yellow-900';
                 return (
-                  <tr key={item.id} className={`border-b border-gray-800/50 hover:brightness-110 transition ${rowCls}`}>
-                    <td className="px-4 py-3"><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs">{item.id.slice(0, 8)}</td>
-                    <td className="px-4 py-3 text-gray-200 font-semibold text-xs">{item.name}</td>
-                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{item.barcode}</td>
-                    <td className="px-4 py-3 text-gray-300 font-bold">{item.quantity}</td>
-                    <td className="px-4 py-3">
+                  <tr key={item.id}>
+                    <td><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} /></td>
+                    <td className="text-[var(--text-muted)] font-mono text-xs">{item.id.slice(0, 8)}</td>
+                    <td className="font-semibold">{item.name}</td>
+                    <td className="font-mono text-[var(--text-secondary)]">{item.barcode}</td>
+                    <td className="font-bold">{item.quantity}</td>
+                    <td>
                       {tab === 'orphans'
-                        ? <span className="text-[11px] bg-red-900/40 text-red-400 font-bold px-2 py-1 rounded-md">Usuário inexistente</span>
+                        ? <span className="text-[10px] bg-[rgba(248,113,113,0.15)] text-[var(--accent-red)] font-bold px-2 py-1 rounded-full border border-[var(--border-red)]">Usuário inexistente</span>
                         : isOldest
-                          ? <span className="text-[11px] bg-yellow-900/30 text-yellow-500 font-bold px-2 py-1 rounded-md">Duplicado (manter)</span>
-                          : <span className="text-[11px] bg-yellow-900/20 text-yellow-400 font-bold px-2 py-1 rounded-md">Duplicado</span>}
+                          ? <span className="text-[10px] bg-[rgba(52,211,153,0.15)] text-[var(--accent-green)] font-bold px-2 py-1 rounded-full border border-[var(--border-green)]">Duplicado (manter)</span>
+                          : <span className="text-[10px] bg-[rgba(251,191,36,0.15)] text-[var(--accent-yellow)] font-bold px-2 py-1 rounded-full border border-[var(--border-yellow)]">Duplicado</span>}
                     </td>
-                    <td className="px-4 py-3 flex gap-2">
-                      <button onClick={() => openDetail(item)} className="text-xs bg-blue-900/30 hover:bg-blue-900/60 text-blue-400 px-3 py-1.5 rounded-lg transition">Detalhes</button>
-                      <button onClick={() => deleteIds([item.id])} disabled={actionLoading} className="text-xs bg-red-900/30 hover:bg-red-900/60 text-red-400 px-3 py-1.5 rounded-lg transition">Deletar</button>
+                    <td className="flex gap-2">
+                      <button onClick={() => openDetail(item)} className="btn-primary py-1 px-2 text-[10px]">Detalhes</button>
+                      <button onClick={() => deleteIds([item.id])} disabled={actionLoading} className="btn-danger py-1 px-2 text-[10px]">Deletar</button>
                     </td>
                   </tr>
                 );
@@ -168,38 +160,39 @@ const OrphanItemsManager: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </GlassCard>
 
+      {/* Modal */}
       {detailItem && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setDetailItem(null); }}>
-          <div className="bg-gray-950 border border-gray-800 rounded-2xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={(e) => { if (e.target === e.currentTarget) setDetailItem(null); }}>
+          <GlassCard accent="blue" className="w-full max-w-2xl !p-6 space-y-4 max-h-[90vh] overflow-y-auto" style={{ backdropFilter: 'blur(20px)' }}>
+            <div className="flex items-center justify-between border-b border-[var(--border-glass)] pb-3">
               <h2 className="text-lg font-black text-white">{detailItem.name}</h2>
-              <button onClick={() => setDetailItem(null)} className="text-gray-500 hover:text-white text-xl">✕</button>
+              <button onClick={() => setDetailItem(null)} className="text-[var(--text-secondary)] hover:text-white text-xl">✕</button>
             </div>
-            <dl className="grid grid-cols-2 gap-3 text-sm">
+            <dl className="grid grid-cols-2 gap-4 text-sm">
               {([['Barcode', detailItem.barcode], ['Categoria', detailItem.category], ['Qtd', String(detailItem.quantity)], ['Risco', detailItem.risk_level], ['Criado em', new Date(detailItem.created_at).toLocaleString('pt-BR')]] as [string, string][]).map(([k, v]) => (
-                <div key={k}><dt className="text-xs text-gray-500 uppercase mb-0.5">{k}</dt><dd className="text-gray-200 font-semibold">{v}</dd></div>
+                <div key={k}><dt className="text-xs text-[var(--text-muted)] uppercase mb-1 font-bold">{k}</dt><dd className="text-[var(--text-primary)] font-semibold">{v}</dd></div>
               ))}
             </dl>
-            <h3 className="text-sm font-bold text-gray-400">Scan Logs</h3>
-            {detailLoading ? <p className="text-gray-600 text-sm">Carregando...</p> : (
-              <table className="w-full text-xs">
-                <thead><tr className="border-b border-gray-800">{['Data/Hora', 'Employee ID', 'Ação', 'Qtd'].map((h) => <th key={h} className="px-3 py-2 text-left text-gray-500">{h}</th>)}</tr></thead>
+            <h3 className="text-sm font-bold text-[var(--text-secondary)] mt-4">Scan Logs</h3>
+            {detailLoading ? <p className="text-[var(--text-muted)] text-sm">Carregando...</p> : (
+              <table className="glass-table mt-2">
+                <thead><tr>{['Data/Hora', 'Employee ID', 'Ação', 'Qtd'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                 <tbody>
                   {detailLogs.map((l) => (
-                    <tr key={l.id} className="border-b border-gray-800/50">
-                      <td className="px-3 py-2 text-gray-400">{new Date(l.scanned_at).toLocaleString('pt-BR')}</td>
-                      <td className="px-3 py-2 text-gray-500 font-mono">{l.employee_id ? l.employee_id.slice(0, 8) + '…' : '—'}</td>
-                      <td className="px-3 py-2"><span className={l.action === 'entrada' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>{l.action.toUpperCase()}</span></td>
-                      <td className="px-3 py-2 text-gray-300 font-bold">{l.quantity}</td>
+                    <tr key={l.id}>
+                      <td className="text-[var(--text-secondary)]">{new Date(l.scanned_at).toLocaleString('pt-BR')}</td>
+                      <td className="text-[var(--text-muted)] font-mono">{l.employee_id ? l.employee_id.slice(0, 8) + '…' : '—'}</td>
+                      <td><span className={`text-[10px] font-bold uppercase ${l.action === 'entrada' ? 'text-[var(--accent-green)]' : 'text-[var(--accent-red)]'}`}>{l.action}</span></td>
+                      <td className="font-bold">{l.quantity}</td>
                     </tr>
                   ))}
-                  {detailLogs.length === 0 && <tr><td colSpan={4} className="px-3 py-5 text-center text-gray-600">Sem scan logs.</td></tr>}
+                  {detailLogs.length === 0 && <tr><td colSpan={4} className="text-center py-6 text-[var(--text-muted)]">Sem registros.</td></tr>}
                 </tbody>
               </table>
             )}
-          </div>
+          </GlassCard>
         </div>
       )}
     </div>

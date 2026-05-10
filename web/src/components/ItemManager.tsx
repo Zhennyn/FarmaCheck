@@ -1,17 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '../lib/supabase';
+import GlassCard from './ui/GlassCard';
+import { RiskBadge } from './ui/RiskBadge';
 
-interface Item {
-  id: string; barcode: string; name: string; category: string;
-  quantity: number; expiry_date: string | null; risk_level: string; created_at: string;
-}
-
-interface ScanLogRow {
-  id: string; employee_name: string; scanned_at: string; action: string; quantity: number;
-}
-
-const INP = 'bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition';
-const RISK_COLOR: Record<string, string> = { low: 'text-green-400', medium: 'text-yellow-400', high: 'text-orange-400', critical: 'text-red-400' };
+interface Item { id: string; barcode: string; name: string; category: string; quantity: number; expiry_date: string | null; risk_level: string; created_at: string; }
+interface ScanLogRow { id: string; employee_name: string; scanned_at: string; action: string; quantity: number; }
 
 const daysUntil = (date: string | null) => {
   if (!date) return null;
@@ -55,19 +48,15 @@ const ItemManager: React.FC = () => {
     return true;
   }), [items, search, filterCategory, filterRisk, filterExpiry]);
 
-  const toggleSelect = (id: string) => setSelected((prev) => {
-    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
-  });
+  const toggleSelect = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSelected((prev) => prev.size === filtered.length ? new Set() : new Set(filtered.map((i) => i.id)));
 
   const openDetail = useCallback(async (item: Item) => {
     setDetailItem(item); setDetailLogs([]); setDetailLoading(true);
-    const { data } = await supabase.from('scan_logs')
-      .select('id, scanned_at, action, quantity, profiles!employee_id(name)')
-      .eq('item_id', item.id).order('scanned_at', { ascending: false });
+    const { data } = await supabase.from('scan_logs').select('id, scanned_at, action, quantity, profiles!employee_id(name)').eq('item_id', item.id).order('scanned_at', { ascending: false });
     if (data) {
       setDetailLogs((data as unknown[]).map((r) => {
-        const row = r as { id: string; scanned_at: string; action: string; quantity: number; profiles: { name: string } | null };
+        const row = r as any;
         return { id: row.id, employee_name: row.profiles?.name ?? '—', scanned_at: row.scanned_at, action: row.action, quantity: row.quantity };
       }));
     }
@@ -85,27 +74,27 @@ const ItemManager: React.FC = () => {
 
   const expiryBadge = (days: number | null) => {
     if (days === null) return null;
-    if (days < 0) return <span className="text-[11px] bg-red-900/50 text-red-400 font-bold px-2 py-0.5 rounded-md ml-2">VENCIDO</span>;
-    if (days <= 7) return <span className="text-[11px] bg-red-900/30 text-red-300 font-bold px-2 py-0.5 rounded-md ml-2">{days}d</span>;
-    if (days <= 30) return <span className="text-[11px] bg-orange-900/30 text-orange-300 font-bold px-2 py-0.5 rounded-md ml-2">{days}d</span>;
+    if (days < 0) return <span className="text-[10px] bg-[rgba(248,113,113,0.15)] text-[var(--accent-red)] font-bold px-1.5 py-0.5 rounded-full ml-2" style={{ animation: 'pulse-dot 2s infinite' }}>VENCIDO</span>;
+    if (days <= 7) return <span className="text-[10px] bg-[rgba(248,113,113,0.15)] text-[var(--accent-red)] font-bold px-1.5 py-0.5 rounded-full ml-2">{days}d</span>;
+    if (days <= 30) return <span className="text-[10px] bg-[rgba(251,191,36,0.15)] text-[var(--accent-yellow)] font-bold px-1.5 py-0.5 rounded-full ml-2">{days}d</span>;
     return null;
   };
 
   return (
-    <div className="p-6 space-y-5">
-      <h1 className="text-2xl font-black text-white">Itens</h1>
+    <div className="space-y-4 relative">
+      <h1 className="text-2xl font-black text-[var(--text-primary)]">Itens</h1>
 
-      <div className="flex flex-wrap gap-3">
-        <input className={INP + ' flex-1 min-w-[220px]'} placeholder="🔍 Buscar por nome ou código..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select className={INP} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+      <GlassCard className="flex flex-wrap gap-3">
+        <input className="inp-glass flex-1 min-w-[220px]" placeholder="🔍 Buscar por nome ou código..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select className="inp-glass" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
           <option value="">Categoria</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select className={INP} value={filterRisk} onChange={(e) => setFilterRisk(e.target.value)}>
+        <select className="inp-glass" value={filterRisk} onChange={(e) => setFilterRisk(e.target.value)}>
           <option value="">Risco</option>
           {['low', 'medium', 'high', 'critical'].map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
-        <select className={INP} value={filterExpiry} onChange={(e) => setFilterExpiry(e.target.value)}>
+        <select className="inp-glass" value={filterExpiry} onChange={(e) => setFilterExpiry(e.target.value)}>
           <option value="">Validade</option>
           <option value="0">Vencidos</option>
           <option value="7">Vence em 7 dias</option>
@@ -113,44 +102,41 @@ const ItemManager: React.FC = () => {
           <option value="30">Vence em 30 dias</option>
         </select>
         {selected.size > 0 && (
-          <button onClick={() => deleteIds(Array.from(selected))} disabled={actionLoading}
-            className="bg-red-900/50 text-red-400 text-sm font-bold px-4 py-2 rounded-xl border border-red-800 hover:bg-red-900/70 transition">
+          <button onClick={() => deleteIds(Array.from(selected))} disabled={actionLoading} className="btn-danger">
             Deletar selecionados ({selected.size})
           </button>
         )}
-      </div>
+      </GlassCard>
 
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+      <GlassCard className="!p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="glass-table">
             <thead>
-              <tr className="border-b border-gray-800">
-                <th className="px-4 py-3"><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
-                {['Nome', 'Código de Barras', 'Categoria', 'Qtd', 'Risco', 'Validade', 'Ações'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
-                ))}
+              <tr>
+                <th><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
+                {['Nome', 'Código de Barras', 'Categoria', 'Qtd', 'Risco', 'Validade', 'Ações'].map(h => <th key={h}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-600">Carregando...</td></tr>
+                <tr><td colSpan={8} className="text-center py-8 text-[var(--text-muted)]">Carregando...</td></tr>
               ) : filtered.map((item) => {
                 const days = daysUntil(item.expiry_date);
                 return (
-                  <tr key={item.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition">
-                    <td className="px-4 py-3"><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} /></td>
-                    <td className="px-4 py-3 text-gray-200 font-semibold text-xs">{item.name}</td>
-                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{item.barcode}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{item.category}</td>
-                    <td className="px-4 py-3 text-gray-300 font-bold">{item.quantity}</td>
-                    <td className={`px-4 py-3 text-xs font-bold uppercase ${RISK_COLOR[item.risk_level] ?? 'text-gray-400'}`}>{item.risk_level}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                  <tr key={item.id}>
+                    <td><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} /></td>
+                    <td className="font-semibold">{item.name}</td>
+                    <td className="font-mono text-[var(--text-secondary)]">{item.barcode}</td>
+                    <td className="text-[var(--text-secondary)]">{item.category}</td>
+                    <td className="font-bold">{item.quantity}</td>
+                    <td><RiskBadge level={item.risk_level} /></td>
+                    <td className="text-[var(--text-secondary)] whitespace-nowrap">
                       {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString('pt-BR') : '—'}
                       {expiryBadge(days)}
                     </td>
-                    <td className="px-4 py-3 flex gap-2">
-                      <button onClick={() => openDetail(item)} className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg transition">Detalhes</button>
-                      <button onClick={() => deleteIds([item.id])} disabled={actionLoading} className="text-xs bg-red-900/30 hover:bg-red-900/60 text-red-400 px-3 py-1.5 rounded-lg transition">Deletar</button>
+                    <td className="flex gap-2">
+                      <button onClick={() => openDetail(item)} className="btn-ghost py-1 px-2 text-[10px]">Detalhes</button>
+                      <button onClick={() => deleteIds([item.id])} disabled={actionLoading} className="btn-danger py-1 px-2 text-[10px]">Deletar</button>
                     </td>
                   </tr>
                 );
@@ -158,39 +144,39 @@ const ItemManager: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </GlassCard>
 
-      {/* Detail Modal */}
+      {/* Modal */}
       {detailItem && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setDetailItem(null); }}>
-          <div className="bg-gray-950 border border-gray-800 rounded-2xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={(e) => { if (e.target === e.currentTarget) setDetailItem(null); }}>
+          <GlassCard accent="blue" className="w-full max-w-2xl !p-6 space-y-4 max-h-[90vh] overflow-y-auto" style={{ backdropFilter: 'blur(20px)' }}>
+            <div className="flex items-center justify-between border-b border-[var(--border-glass)] pb-3">
               <h2 className="text-lg font-black text-white">{detailItem.name}</h2>
-              <button onClick={() => setDetailItem(null)} className="text-gray-500 hover:text-white text-xl">✕</button>
+              <button onClick={() => setDetailItem(null)} className="text-[var(--text-secondary)] hover:text-white text-xl">✕</button>
             </div>
-            <dl className="grid grid-cols-2 gap-3 text-sm">
+            <dl className="grid grid-cols-2 gap-4 text-sm">
               {([['Código de Barras', detailItem.barcode], ['Categoria', detailItem.category], ['Quantidade', String(detailItem.quantity)], ['Risco', detailItem.risk_level], ['Validade', detailItem.expiry_date ? new Date(detailItem.expiry_date).toLocaleDateString('pt-BR') : '—'], ['Criado em', new Date(detailItem.created_at).toLocaleString('pt-BR')]] as [string, string][]).map(([k, v]) => (
-                <div key={k}><dt className="text-xs text-gray-500 uppercase mb-0.5">{k}</dt><dd className="text-gray-200 font-semibold">{v}</dd></div>
+                <div key={k}><dt className="text-xs text-[var(--text-muted)] uppercase mb-1 font-bold">{k}</dt><dd className="text-[var(--text-primary)] font-semibold">{v}</dd></div>
               ))}
             </dl>
-            <h3 className="text-sm font-bold text-gray-400 mt-2">Histórico de Scan Logs</h3>
-            {detailLoading ? <p className="text-gray-600 text-sm">Carregando...</p> : (
-              <table className="w-full text-xs">
-                <thead><tr className="border-b border-gray-800">{['Data/Hora', 'Funcionário', 'Ação', 'Qtd'].map((h) => <th key={h} className="px-3 py-2 text-left text-gray-500">{h}</th>)}</tr></thead>
+            <h3 className="text-sm font-bold text-[var(--text-secondary)] mt-4">Histórico de Scan Logs</h3>
+            {detailLoading ? <p className="text-[var(--text-muted)] text-sm">Carregando...</p> : (
+              <table className="glass-table mt-2">
+                <thead><tr>{['Data/Hora', 'Funcionário', 'Ação', 'Qtd'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                 <tbody>
                   {detailLogs.map((l) => (
-                    <tr key={l.id} className="border-b border-gray-800/50">
-                      <td className="px-3 py-2 text-gray-400">{new Date(l.scanned_at).toLocaleString('pt-BR')}</td>
-                      <td className="px-3 py-2 text-gray-300">{l.employee_name}</td>
-                      <td className="px-3 py-2"><span className={l.action === 'entrada' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>{l.action.toUpperCase()}</span></td>
-                      <td className="px-3 py-2 text-gray-300 font-bold">{l.quantity}</td>
+                    <tr key={l.id}>
+                      <td className="text-[var(--text-secondary)]">{new Date(l.scanned_at).toLocaleString('pt-BR')}</td>
+                      <td className="text-[var(--text-primary)]">{l.employee_name}</td>
+                      <td><span className={`text-[10px] font-bold uppercase ${l.action === 'entrada' ? 'text-[var(--accent-green)]' : 'text-[var(--accent-red)]'}`}>{l.action}</span></td>
+                      <td className="font-bold">{l.quantity}</td>
                     </tr>
                   ))}
-                  {detailLogs.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-600">Sem registros.</td></tr>}
+                  {detailLogs.length === 0 && <tr><td colSpan={4} className="text-center py-6 text-[var(--text-muted)]">Sem registros.</td></tr>}
                 </tbody>
               </table>
             )}
-          </div>
+          </GlassCard>
         </div>
       )}
     </div>

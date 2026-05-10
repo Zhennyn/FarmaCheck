@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '../lib/supabase';
+import GlassCard from './ui/GlassCard';
 
-interface Profile {
-  id: string; name: string; sigla: string | null; number: string | null; regional: string | null; role: string; email?: string;
-}
-
-const INP = 'w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition';
-const LBL = 'text-xs font-semibold text-gray-400 uppercase mb-1 block';
+interface Profile { id: string; name: string; sigla: string | null; number: string | null; regional: string | null; role: string; email?: string; }
 
 const Settings: React.FC = () => {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
@@ -27,8 +23,7 @@ const Settings: React.FC = () => {
     const { data } = await supabase.from('profiles').select('id, name, sigla, number, regional, role').eq('id', user.id).single();
     if (data) {
       const p = data as Profile;
-      setMyProfile(p);
-      setEditName(p.name); setEditSigla(p.sigla ?? ''); setEditNumber(p.number ?? ''); setEditRegional(p.regional ?? '');
+      setMyProfile(p); setEditName(p.name); setEditSigla(p.sigla ?? ''); setEditNumber(p.number ?? ''); setEditRegional(p.regional ?? '');
     }
   }, []);
 
@@ -78,41 +73,39 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-3xl">
-      <h1 className="text-2xl font-black text-white">Configurações</h1>
+    <div className="space-y-6 max-w-3xl">
+      <h1 className="text-2xl font-black text-[var(--text-primary)]">Configurações</h1>
 
-      {/* My profile */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
-        <h2 className="text-base font-bold text-gray-300">Meu Perfil</h2>
-        {msg && <div className={`text-sm px-4 py-2 rounded-xl ${msg.type === 'ok' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>{msg.text}</div>}
+      <GlassCard accent="blue" className="space-y-4">
+        <h2 className="text-sm font-bold text-[var(--accent-blue)] uppercase">Meu Perfil</h2>
+        {msg && <div className={`text-xs font-bold px-4 py-2 rounded-lg border ${msg.type === 'ok' ? 'bg-[rgba(52,211,153,0.1)] border-[var(--border-green)] text-[var(--accent-green)]' : 'bg-[rgba(248,113,113,0.1)] border-[var(--border-red)] text-[var(--accent-red)]'}`}>{msg.text}</div>}
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2"><label className={LBL}>Nome</label><input className={INP} value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
-          <div><label className={LBL}>Sigla</label><input className={INP} value={editSigla} onChange={(e) => setEditSigla(e.target.value)} /></div>
-          <div><label className={LBL}>Número</label><input className={INP} value={editNumber} onChange={(e) => setEditNumber(e.target.value)} /></div>
-          <div className="col-span-2"><label className={LBL}>Regional</label><input className={INP} value={editRegional} onChange={(e) => setEditRegional(e.target.value)} /></div>
+          <div className="col-span-2"><label className="text-[10px] text-[var(--text-muted)] uppercase mb-1 block font-bold">Nome</label><input className="inp-glass w-full" value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
+          <div><label className="text-[10px] text-[var(--text-muted)] uppercase mb-1 block font-bold">Sigla</label><input className="inp-glass w-full" value={editSigla} onChange={(e) => setEditSigla(e.target.value)} /></div>
+          <div><label className="text-[10px] text-[var(--text-muted)] uppercase mb-1 block font-bold">Número</label><input className="inp-glass w-full" value={editNumber} onChange={(e) => setEditNumber(e.target.value)} /></div>
+          <div className="col-span-2"><label className="text-[10px] text-[var(--text-muted)] uppercase mb-1 block font-bold">Regional</label><input className="inp-glass w-full" value={editRegional} onChange={(e) => setEditRegional(e.target.value)} /></div>
         </div>
-        <button onClick={saveProfile} disabled={saving} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold px-5 py-2.5 rounded-xl transition disabled:opacity-50">
+        <button onClick={saveProfile} disabled={saving} className="btn-primary mt-2 disabled:opacity-50">
           {saving ? 'Salvando...' : 'Salvar Alterações'}
         </button>
-      </div>
+      </GlassCard>
 
-      {/* Role management */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
-        <h2 className="text-base font-bold text-gray-300">Gerenciar Papéis</h2>
+      <GlassCard accent="purple" className="space-y-4 !p-0">
+        <h2 className="text-sm font-bold text-[var(--accent-purple)] uppercase p-4 pb-0">Gerenciar Papéis</h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-gray-800">{['Nome', 'Sigla', 'Papel atual', 'Ação'].map((h) => <th key={h} className="px-4 py-3 text-left text-xs text-gray-500 uppercase">{h}</th>)}</tr></thead>
+          <table className="glass-table">
+            <thead><tr>{['Nome', 'Sigla', 'Papel atual', 'Ação'].map(h => <th key={h}>{h}</th>)}</tr></thead>
             <tbody>
               {employees.map((emp) => (
-                <tr key={emp.id} className="border-b border-gray-800/50">
-                  <td className="px-4 py-3 text-gray-200">{emp.name}</td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{emp.sigla ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs font-bold px-2 py-1 rounded-md ${emp.role === 'gerente' ? 'bg-indigo-900/40 text-indigo-400' : 'bg-gray-700/50 text-gray-400'}`}>{emp.role}</span>
+                <tr key={emp.id}>
+                  <td className="font-semibold">{emp.name}</td>
+                  <td className="font-mono text-[var(--text-secondary)] text-xs">{emp.sigla ?? '—'}</td>
+                  <td>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${emp.role === 'gerente' ? 'bg-[rgba(139,92,246,0.15)] border-[var(--border-purple)] text-[var(--accent-purple)]' : 'bg-[var(--bg-surface)] border-[var(--border-glass)] text-[var(--text-secondary)]'}`}>{emp.role}</span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     {emp.id !== myProfile?.id && (
-                      <button onClick={() => toggleRole(emp)} className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${emp.role === 'gerente' ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-indigo-900/40 hover:bg-indigo-900/60 text-indigo-400'}`}>
+                      <button onClick={() => toggleRole(emp)} className={`text-[10px] px-2 py-1 rounded-lg font-bold border transition ${emp.role === 'gerente' ? 'bg-transparent hover:bg-[var(--bg-surface-hover)] border-[var(--border-glass)] text-[var(--text-secondary)]' : 'bg-[rgba(139,92,246,0.15)] hover:bg-[rgba(139,92,246,0.25)] border-[var(--border-purple)] text-[var(--accent-purple)]'}`}>
                         {emp.role === 'gerente' ? 'Rebaixar' : 'Promover'}
                       </button>
                     )}
@@ -122,32 +115,27 @@ const Settings: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </GlassCard>
 
-      {/* Danger zone */}
-      <div className="bg-red-950/20 border border-red-900/50 rounded-2xl p-6 space-y-4">
-        <h2 className="text-base font-bold text-red-400">⚠️ Zona de Perigo</h2>
+      <GlassCard accent="red" className="space-y-4">
+        <h2 className="text-sm font-bold text-[var(--accent-red)] uppercase flex items-center gap-2"><span className="animate-pulse">⚠️</span> Zona de Perigo</h2>
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between bg-gray-900/50 px-4 py-3 rounded-xl">
+          <div className="flex items-center justify-between bg-[var(--bg-surface)] border border-[var(--border-glass)] px-4 py-3 rounded-xl">
             <div>
-              <p className="text-sm font-semibold text-gray-300">Limpar todos os órfãos</p>
-              <p className="text-xs text-gray-500">Deleta itens sem funcionário válido.</p>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Limpar todos os órfãos</p>
+              <p className="text-[10px] text-[var(--text-muted)]">Deleta itens sem funcionário válido.</p>
             </div>
-            <button onClick={cleanOrphans} disabled={dangerLoading} className="text-sm bg-red-900/50 hover:bg-red-900/70 text-red-400 font-bold px-4 py-2 rounded-xl border border-red-800 transition disabled:opacity-50">
-              Limpar Órfãos
-            </button>
+            <button onClick={cleanOrphans} disabled={dangerLoading} className="btn-danger !py-1.5 disabled:opacity-50">Limpar Órfãos</button>
           </div>
-          <div className="flex items-center justify-between bg-gray-900/50 px-4 py-3 rounded-xl">
+          <div className="flex items-center justify-between bg-[var(--bg-surface)] border border-[var(--border-glass)] px-4 py-3 rounded-xl">
             <div>
-              <p className="text-sm font-semibold text-gray-300">Limpar logs antigos (&gt; 90 dias)</p>
-              <p className="text-xs text-gray-500">Remove scan_logs com mais de 90 dias de criação.</p>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Limpar logs antigos (&gt; 90 dias)</p>
+              <p className="text-[10px] text-[var(--text-muted)]">Remove scan_logs com mais de 90 dias.</p>
             </div>
-            <button onClick={cleanOldLogs} disabled={dangerLoading} className="text-sm bg-red-900/50 hover:bg-red-900/70 text-red-400 font-bold px-4 py-2 rounded-xl border border-red-800 transition disabled:opacity-50">
-              Limpar Logs
-            </button>
+            <button onClick={cleanOldLogs} disabled={dangerLoading} className="btn-danger !py-1.5 disabled:opacity-50">Limpar Logs</button>
           </div>
         </div>
-      </div>
+      </GlassCard>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import Sidebar from './components/Sidebar';
+import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import EmployeeManager from './components/EmployeeManager';
 import ItemManager from './components/ItemManager';
@@ -28,20 +28,17 @@ const App = () => {
   }, [logs]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950 text-white">
-      <Sidebar active={page} onNavigate={(p) => setPage(p as Page)} criticalCount={criticalCount} />
-      <main className="flex-1 overflow-y-auto">
-        {page === 'dashboard'  && <Dashboard />}
-        {page === 'employees'  && <EmployeeManager />}
-        {page === 'items'      && <ItemManager />}
-        {page === 'reports'    && <Reports />}
-        {page === 'alerts'     && <ExpiryAlerts />}
-        {page === 'orphans'    && <OrphanItemsManager />}
-        {page === 'ranking'    && <ProductivityRanking />}
-        {page === 'stock'      && <StockAlerts />}
-        {page === 'settings'   && <Settings />}
-      </main>
-    </div>
+    <Layout active={page} onNavigate={(p) => setPage(p as Page)} criticalCount={criticalCount}>
+      {page === 'dashboard'  && <Dashboard />}
+      {page === 'employees'  && <EmployeeManager />}
+      {page === 'items'      && <ItemManager />}
+      {page === 'reports'    && <Reports />}
+      {page === 'alerts'     && <ExpiryAlerts />}
+      {page === 'orphans'    && <OrphanItemsManager />}
+      {page === 'ranking'    && <ProductivityRanking />}
+      {page === 'stock'      && <StockAlerts />}
+      {page === 'settings'   && <Settings />}
+    </Layout>
   );
 };
 
