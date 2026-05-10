@@ -9,7 +9,7 @@ const AnimatedCount: React.FC<{ value: number }> = ({ value }) => {
   useEffect(() => {
     let start = 0;
     const duration = 800;
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setInterval>;
     if (value === 0) setCount(0);
     else {
       timer = setInterval(() => {
@@ -59,7 +59,7 @@ const Dashboard: React.FC = () => {
   }, [logs]);
 
   const week = useMemo(() => {
-    const arr = [];
+    const arr: { date: string; total: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
       arr.push({ date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), total: 0 });

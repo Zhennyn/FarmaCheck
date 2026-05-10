@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { createClient } from '../lib/supabase';
 import { exportLogsToXLSX } from '../lib/exportXLSX';
+import { EnrichedLog } from '../hooks/useRealtimeLogs';
 import GlassCard from './ui/GlassCard';
 import { RiskBadge } from './ui/RiskBadge';
 
-interface LogRow { id: string; scanned_at: string; action: string; quantity: number; employee_name: string; employee_sigla: string | null; employee_number: string | null; employee_regional: string | null; item_id: string; item_name: string; item_barcode: string; item_category: string; item_risk_level: 'low'|'medium'|'high'|'critical'; item_expiry_date: string | null; item_quantity: number; synced: boolean; }
+interface LogRow extends EnrichedLog { item_barcode: string; }
 interface Filters { dateFrom: string; dateTo: string; employeeId: string; regional: string; number: string; category: string; action: string; risk_level: string; }
 
 const INIT: Filters = { dateFrom: '', dateTo: '', employeeId: '', regional: '', number: '', category: '', action: '', risk_level: '' };
@@ -21,7 +22,7 @@ const Reports: React.FC = () => {
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
-    let q = supabase.from('scan_logs').select(`id, item_id, scanned_at, action, quantity, profiles!employee_id(name, sigla, number, regional), items!item_id(name, barcode, category, risk_level, expiry_date, quantity)`).order('scanned_at', { ascending: false }).limit(2000);
+    let q = supabase.from('scan_logs').select(`id, item_id, employee_id, scanned_at, action, quantity, profiles!employee_id(name, sigla, number, regional), items!item_id(name, barcode, category, risk_level, expiry_date, quantity)`).order('scanned_at', { ascending: false }).limit(2000);
     if (filters.dateFrom) q = q.gte('scanned_at', filters.dateFrom);
     if (filters.dateTo) q = q.lte('scanned_at', filters.dateTo + 'T23:59:59');
     if (filters.action) q = q.eq('action', filters.action);
@@ -32,7 +33,7 @@ const Reports: React.FC = () => {
       const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
       const it = Array.isArray(r.items) ? r.items[0] : r.items;
       return {
-        id: r.id, item_id: r.item_id, scanned_at: r.scanned_at, action: r.action, quantity: r.quantity, synced: true,
+        id: r.id, item_id: r.item_id, employee_id: r.employee_id, scanned_at: r.scanned_at, action: r.action, quantity: r.quantity, synced: true,
         employee_name: p?.name ?? '—', employee_sigla: p?.sigla ?? null, employee_number: p?.number ?? null, employee_regional: p?.regional ?? null,
         item_name: it?.name ?? '—', item_barcode: it?.barcode ?? '—', item_category: it?.category ?? '—', item_risk_level: it?.risk_level ?? 'low', item_expiry_date: it?.expiry_date ?? null, item_quantity: it?.quantity ?? 0,
       };
