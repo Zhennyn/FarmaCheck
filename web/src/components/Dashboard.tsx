@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -9,6 +9,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import useRealtimeLogs, { EnrichedLog } from '../hooks/useRealtimeLogs';
+import { exportLogsToXLSX } from '../lib/exportXLSX';
+import { createClient } from '../lib/supabase';
 
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
@@ -89,7 +91,12 @@ const MetricCard = ({ label, value, accent }: { label: string; value: number | s
 type SortField = 'employee_name' | 'item_name' | 'item_expiry_date' | 'item_risk_level' | 'scanned_at';
 
 const Dashboard = () => {
-  const { logs, loading } = useRealtimeLogs();
+  const [drugstoreFilter, setDrugstoreFilter] = useState('');
+  const [regionalFilter, setRegionalFilter] = useState('');
+  const { logs, loading } = useRealtimeLogs({
+    drugstoreNumber: drugstoreFilter || undefined,
+    regional: regionalFilter || undefined,
+  });
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [riskFilter, setRiskFilter] = useState<RiskLevel | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,10 +106,28 @@ const Dashboard = () => {
   const [sortField, setSortField] = useState<SortField>('scanned_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
+  // BUG 6: load distinct drugstore/regional options from profiles
+  const [drugstoreOptions, setDrugstoreOptions] = useState<string[]>([]);
+  const [regionalOptions, setRegionalOptions] = useState<string[]>([]);
+
+  const loadFilterOptions = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('profiles')
+      .select('drugstore_number, regional');
+    if (!data) return;
+    const ds = Array.from(new Set(data.map((r: { drugstore_number: string | null }) => r.drugstore_number).filter(Boolean))) as string[];
+    const reg = Array.from(new Set(data.map((r: { regional: string | null }) => r.regional).filter(Boolean))) as string[];
+    setDrugstoreOptions(ds.sort());
+    setRegionalOptions(reg.sort());
+  }, []);
+
+  useEffect(() => { loadFilterOptions(); }, [loadFilterOptions]);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, employeeFilter, riskFilter]);
+  }, [searchQuery, employeeFilter, riskFilter, drugstoreFilter, regionalFilter]);
 
   const todayCount = useMemo(() => logs.filter((l) => isToday(l.scanned_at)).length, [logs]);
   const criticalCount = useMemo(() => logs.filter((l) => l.item_risk_level === 'critical').length, [logs]);
@@ -183,27 +208,8 @@ const Dashboard = () => {
     return <span style={{ color: '#6366f1', marginLeft: 4 }}>{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const downloadCSV = () => {
-    const headers = ['Funcionário', 'Item', 'Categoria', 'Risco', 'Ação', 'Qtd', 'Validade', 'Data/Hora'];
-    const rows = filtered.map(log => [
-      `"${log.employee_name}"`,
-      `"${log.item_name}"`,
-      `"${log.item_category}"`,
-      log.item_risk_level,
-      log.action,
-      log.quantity,
-      log.item_expiry_date || 'N/D',
-      new Date(log.scanned_at).toLocaleString('pt-BR')
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `farmacheck_auditoria_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  // BUG 5: use unified XLSX export
+  const downloadXLSX = () => exportLogsToXLSX(filtered);
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a14', color: '#ffffff', fontFamily: 'Inter, sans-serif', padding: '40px 48px' }}>
@@ -222,12 +228,12 @@ const Dashboard = () => {
           <p style={{ color: '#9ca3af', fontSize: 15, margin: 0 }}>Monitoramento e auditoria de produtos da Farmácia</p>
         </div>
         <button 
-          onClick={downloadCSV}
+          onClick={downloadXLSX}
           style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(99,102,241,0.3)', transition: 'transform 0.2s' }}
           onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
           onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
         >
-          📥 Exportar Relatório (CSV)
+          📥 Exportar Relatório (XLSX)
         </button>
       </div>
 
@@ -321,6 +327,24 @@ const Dashboard = () => {
               {(['low', 'medium', 'high', 'critical'] as RiskLevel[]).map((r) => (
                 <option key={r} value={r}>{r === 'low' ? 'Baixo' : r === 'medium' ? 'Médio' : r === 'high' ? 'Alto' : 'Crítico'} ({r})</option>
               ))}
+            </select>
+
+            <select
+              value={drugstoreFilter}
+              onChange={(e) => setDrugstoreFilter(e.target.value)}
+              style={{ background: '#0a0a14', color: '#d1d5db', border: '1px solid #374151', borderRadius: 12, padding: '10px 16px', fontSize: 14, outline: 'none', cursor: 'pointer' }}
+            >
+              <option value="">Nº Drogaria</option>
+              {drugstoreOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+
+            <select
+              value={regionalFilter}
+              onChange={(e) => setRegionalFilter(e.target.value)}
+              style={{ background: '#0a0a14', color: '#d1d5db', border: '1px solid #374151', borderRadius: 12, padding: '10px 16px', fontSize: 14, outline: 'none', cursor: 'pointer' }}
+            >
+              <option value="">Regional</option>
+              {regionalOptions.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
 

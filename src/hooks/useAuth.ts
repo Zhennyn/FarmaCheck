@@ -4,40 +4,85 @@ import { createClient } from '@/src/lib/supabase';
 
 type Role = 'funcionario' | 'gerente';
 
+interface Profile {
+  id: string;
+  role: Role;
+  name: string;
+  drugstore_number: string | null;
+  regional: string | null;
+}
+
 interface AuthState {
   user: User | null;
+  profile: Profile | null;
   role: Role | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
-const fetchRole = async (userId: string): Promise<Role | null> => {
+const ensureProfile = async (user: User): Promise<Profile> => {
   const supabase = createClient();
-  const { data, error } = await supabase
+
+  const { data: existing, error: fetchError } = await supabase
     .from('profiles')
-    .select('role')
-    .eq('id', userId)
+    .select('id, role, name, drugstore_number, regional')
+    .eq('id', user.id)
     .single();
 
-  if (error || !data) return null;
-  return data.role as Role;
+  if (!fetchError && existing) {
+    return existing as Profile;
+  }
+
+  const defaultName =
+    user.user_metadata?.name ??
+    user.email?.split('@')[0] ??
+    'Usuário';
+
+  const { data: created, error: insertError } = await supabase
+    .from('profiles')
+    .insert({
+      id: user.id,
+      role: 'funcionario',
+      name: defaultName,
+      drugstore_number: null,
+      regional: null,
+    })
+    .select('id, role, name, drugstore_number, regional')
+    .single();
+
+  if (insertError || !created) {
+    throw new Error(`Falha ao criar perfil: ${insertError?.message ?? 'desconhecido'}`);
+  }
+
+  return created as Profile;
 };
 
 const useAuth = (): AuthState => {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
 
   const hydrate = useCallback(async (session: Session | null) => {
     if (!session?.user) {
       setUser(null);
+      setProfile(null);
       setRole(null);
       return;
     }
+
     setUser(session.user);
-    const r = await fetchRole(session.user.id);
-    setRole(r);
+
+    try {
+      const p = await ensureProfile(session.user);
+      setProfile(p);
+      setRole(p.role);
+    } catch (err: unknown) {
+      console.error('hydrate profile error:', err);
+      setProfile(null);
+      setRole(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -71,7 +116,7 @@ const useAuth = (): AuthState => {
     if (error) throw error;
   }, []);
 
-  return { user, role, loading, signIn, signOut };
+  return { user, profile, role, loading, signIn, signOut };
 };
 
 export default useAuth;

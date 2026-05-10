@@ -122,3 +122,20 @@ export const getRecentLogs = async (limit = 50): Promise<(LocalScanLog & { item_
   );
   return rows;
 };
+
+// BUG 1: deleteAllItems with isDeleting flag to prevent re-render loop
+let isDeleting = false;
+
+export const deleteAllItems = async (): Promise<void> => {
+  if (isDeleting) return;
+  isDeleting = true;
+  try {
+    const database = getDb();
+    await database.withExclusiveTransactionAsync(async (txn) => {
+      await txn.runAsync(`DELETE FROM scan_logs`);
+      await txn.runAsync(`DELETE FROM items`);
+    });
+  } finally {
+    isDeleting = false;
+  }
+};

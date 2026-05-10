@@ -11,8 +11,11 @@ export interface EnrichedLog {
   quantity: number;
   synced: boolean;
   employee_name: string;
+  drugstore_number: string | null;
+  regional: string | null;
   item_name: string;
   item_category: string;
+  item_quantity: number;
   item_risk_level: 'low' | 'medium' | 'high' | 'critical';
   item_expiry_date: string | null;
 }
@@ -22,16 +25,38 @@ interface RealtimeLogsState {
   loading: boolean;
 }
 
-const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
+// BUG 3: include quantity explicitly in items join + add profile fields for BUG 6
+const fetchEnrichedLogs = async (
+  drugsStoreNumber?: string,
+  regional?: string
+): Promise<EnrichedLog[]> => {
   const supabase = createClient();
-  const { data, error } = await supabase
+
+  let query = supabase
     .from('scan_logs')
     .select(`
-      id, item_id, employee_name, scanned_at, action, quantity, synced,
-      items!item_id ( name, category, risk_level, expiry_date )
+      id,
+      item_id,
+      employee_id,
+      scanned_at,
+      action,
+      quantity,
+      synced,
+      profiles!employee_id ( name, drugstore_number, regional ),
+      items!item_id ( name, category, quantity, risk_level, expiry_date )
     `)
     .order('scanned_at', { ascending: false })
-    .limit(300);
+    .limit(500);
+
+  // BUG 6: filter by drugstore_number and regional when set
+  if (drugsStoreNumber) {
+    query = query.eq('profiles.drugstore_number', drugsStoreNumber);
+  }
+  if (regional) {
+    query = query.eq('profiles.regional', regional);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) return [];
 
@@ -39,45 +64,61 @@ const fetchEnrichedLogs = async (): Promise<EnrichedLog[]> => {
     const row = rawRow as {
       id: string;
       item_id: string;
-      employee_name: string;
+      employee_id: string;
       scanned_at: string;
       action: 'entrada' | 'saida';
       quantity: number;
       synced: boolean;
-      items: { name: string; category: string; risk_level: string; expiry_date: string | null }[] | { name: string; category: string; risk_level: string; expiry_date: string | null } | null;
+      profiles:
+        | { name: string; drugstore_number: string | null; regional: string | null }[]
+        | { name: string; drugstore_number: string | null; regional: string | null }
+        | null;
+      items:
+        | { name: string; category: string; quantity: number; risk_level: string; expiry_date: string | null }[]
+        | { name: string; category: string; quantity: number; risk_level: string; expiry_date: string | null }
+        | null;
     };
 
+    const profileObj = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
     const itemObj = Array.isArray(row.items) ? row.items[0] : row.items;
 
     return {
       id: row.id,
       item_id: row.item_id,
-      employee_id: '',
+      employee_id: row.employee_id,
       scanned_at: row.scanned_at,
       action: row.action,
       quantity: row.quantity,
       synced: row.synced,
-      employee_name: row.employee_name || 'Desconhecido',
+      employee_name: profileObj?.name ?? 'Desconhecido',
+      drugstore_number: profileObj?.drugstore_number ?? null,
+      regional: profileObj?.regional ?? null,
       item_name: itemObj?.name ?? 'Desconhecido',
       item_category: itemObj?.category ?? '',
+      item_quantity: itemObj?.quantity ?? 0,
       item_risk_level: (itemObj?.risk_level ?? 'low') as EnrichedLog['item_risk_level'],
       item_expiry_date: itemObj?.expiry_date ?? null,
     };
   });
 };
 
-const useRealtimeLogs = (): RealtimeLogsState => {
+interface UseRealtimeLogsOptions {
+  drugstoreNumber?: string;
+  regional?: string;
+}
+
+const useRealtimeLogs = (options: UseRealtimeLogsOptions = {}): RealtimeLogsState => {
   const [logs, setLogs] = useState<EnrichedLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      const data = await fetchEnrichedLogs();
+      const data = await fetchEnrichedLogs(options.drugstoreNumber, options.regional);
       setLogs(data);
     } catch (error: unknown) {
       console.error('useRealtimeLogs refresh error:', error);
     }
-  }, []);
+  }, [options.drugstoreNumber, options.regional]);
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
