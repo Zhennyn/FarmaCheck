@@ -22,13 +22,8 @@ export interface LocalScanLog {
   synced: number;
 }
 
-let db: SQLite.SQLiteDatabase | null = null;
-
-const getDb = (): SQLite.SQLiteDatabase => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('farmacheck.db');
-  }
-  return db;
+export const getDb = (): SQLite.SQLiteDatabase => {
+  return SQLite.openDatabaseSync('farmacheck.db');
 };
 
 export const initDB = async (): Promise<void> => {
