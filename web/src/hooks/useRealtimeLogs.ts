@@ -88,7 +88,7 @@ const useRealtimeLogs = (options: UseRealtimeLogsOptions = {}): RealtimeLogsStat
   useEffect(() => {
     refresh().finally(() => setLoading(false));
     const supabase = createClient();
-    const ch = supabase.channel('scan_logs_rt')
+    const ch = supabase.channel(`scan_logs_rt_${Date.now()}_${Math.random()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'scan_logs' },
         (_: RealtimePostgresChangesPayload<Record<string, unknown>>) => { refresh(); })
       .subscribe();
