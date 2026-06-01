@@ -11,13 +11,16 @@ export const GlassCard: React.FC<GlassCardProps> = ({ accent = 'none', className
   
   return (
     <div
-      className={className}
+      className={`animate-fade-in-up ${className}`}
       style={{
         background: 'var(--bg-surface)',
-        border: `0.5px solid ${borderVar}`,
-        borderRadius: '12px',
-        backdropFilter: 'blur(12px)',
-        padding: '1rem',
+        border: `1px solid ${borderVar}`,
+        borderRadius: '16px',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        boxShadow: 'var(--shadow-glass)',
+        padding: '1.25rem',
+        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
         ...style
       }}
       {...props}

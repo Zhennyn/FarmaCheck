@@ -23,6 +23,27 @@ const NAV = [
 ];
 
 const Layout: React.FC<LayoutProps> = ({ active, onNavigate, criticalCount, children }) => {
+  const [isDark, setIsDark] = React.useState(() => {
+    return document.documentElement.getAttribute('data-theme') === 'dark';
+  });
+
+  React.useEffect(() => {
+    // Definir tema dark como padrão se não houver atributo
+    if (!document.documentElement.hasAttribute('data-theme')) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      setIsDark(true);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = isDark ? 'light' : 'dark';
+    setIsDark(!isDark);
+    if (newTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  };
   return (
     <div style={{ background: 'var(--bg-base)', minHeight: '100vh', position: 'relative', overflow: 'hidden' }} className="text-[var(--text-primary)] font-sans">
       <div style={{ position: 'absolute', top: '-10%', right: '-5%', width: '500px', height: '500px', background: 'var(--orb-blue)', pointerEvents: 'none', zIndex: 0 }} />
@@ -67,12 +88,34 @@ const Layout: React.FC<LayoutProps> = ({ active, onNavigate, criticalCount, chil
 
         <div className="flex-1 flex flex-col h-screen overflow-hidden py-4 pr-4">
           <GlassCard className="mb-4 flex items-center justify-between !py-3">
-            <div className="text-[var(--text-muted)] text-sm font-mono flex gap-4">
-              <span>Regional: <select className="bg-transparent text-[var(--accent-blue)] outline-none cursor-pointer"><option>Todas</option></select></span>
-              <span>Nº Drogaria: <select className="bg-transparent text-[var(--accent-blue)] outline-none cursor-pointer"><option>Todas</option></select></span>
+            <div className="text-[var(--text-muted)] text-sm font-semibold flex gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[var(--text-secondary)]">Regional:</span>
+                <select className="bg-[var(--bg-surface-hover)] text-[var(--accent-blue)] outline-none cursor-pointer rounded px-2 py-1 border border-[var(--border-glass)]">
+                  <option>Todas as Regionais</option>
+                  <option>Norte</option>
+                  <option>Sul</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[var(--text-secondary)]">Drogaria:</span>
+                <select className="bg-[var(--bg-surface-hover)] text-[var(--accent-blue)] outline-none cursor-pointer rounded px-2 py-1 border border-[var(--border-glass)]">
+                  <option>Todas as Lojas</option>
+                  <option>Loja 01</option>
+                </select>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[var(--bg-surface)] border border-[var(--border-glass)] flex items-center justify-center text-[var(--accent-purple)] font-bold text-sm">U</div>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={toggleTheme}
+                className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-glass)] transition-all cursor-pointer text-lg"
+                title="Alternar Tema"
+              >
+                {isDark ? '☀️' : '🌙'}
+              </button>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[var(--accent-purple)] to-[var(--accent-blue)] flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-[var(--border-purple)] cursor-pointer transition-transform hover:scale-105">
+                GER
+              </div>
             </div>
           </GlassCard>
           
